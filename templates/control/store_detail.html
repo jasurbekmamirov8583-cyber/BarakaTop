@@ -1,0 +1,47 @@
+{% extends 'control/base.html' %}
+{% block title %}{{ store.name }} · ORBIT{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a href="{% url 'stores' %}">← Do‘konlar</a><p class="overline">{{ store.code }}</p><h1>{{ store.name }}</h1><p>{{ store.owner_name }} · {{ store.owner_phone }}</p></div>
+  <div class="actions"><a class="button" href="{% url 'store_edit' store.pk %}">Tahrirlash</a><button class="button" data-open="alertDialog">Ogohlantirish</button><button class="button" data-open="adminDialog">+ Telegram admin</button><button class="button primary" data-open="enrollDialog">+ Aktivatsiya</button></div>
+</div>
+
+{% if credential %}
+<div class="credential"><div><b>Bir martalik kirish ma’lumotlari</b><p>Activation key va parol xavfsizlik sababli faqat hozir ko‘rsatiladi.</p></div><dl><dt>Do‘kon kodi</dt><dd>{{ credential.store_code }}</dd>{% if credential.activation_key %}<dt>Activation key</dt><dd>{{ credential.activation_key }}</dd>{% endif %}<dt>Login</dt><dd>{{ credential.username }}</dd><dt>Parol</dt><dd>{{ credential.password }}</dd></dl></div>
+{% endif %}
+
+<section class="stats"><div><span>Holat</span><strong class="text">{{ store.get_status_display }}</strong></div><div><span>Telegram admin</span><strong>{{ admins|length }}</strong></div><div><span>Qurilma limiti</span><strong>{{ licensed_device_count }}/{{ store.max_devices }}</strong><small>revoked qurilmalar limitga kirmaydi</small></div></section>
+
+<section class="panel"><div class="panel-title"><h2>Funksiya siyosati</h2><a class="button small" href="{% url 'store_edit' store.pk %}">Litsenziyani o‘zgartirish</a></div><p><b>Ruxsat etilgan:</b> {{ store.licensed_features|join:', ' }}</p><p><b>Do‘kon egasi yoqqan:</b> {{ store.active_features|join:', ' }}</p><small>Do‘kon egasi faqat superadmin ruxsat bergan funksiyalar ichidan tanlay oladi.</small></section>
+
+<section class="panel" data-status-url="{% url 'store_device_status' store.pk %}">
+  <div class="panel-title"><h2>Qurilmalar, IP va jonli holat</h2><small>Holat har 15 soniyada yangilanadi</small></div>
+  <table><thead><tr><th>Qurilma</th><th>Rejim / kirish</th><th>Ko‘rilgan IP</th><th>Ruxsat IP/CIDR</th><th>Oxirgi aloqa</th><th>Litsenziya</th><th></th></tr></thead><tbody>
+  {% for d in devices %}<tr data-device-row="{{ d.pk }}"><td><b>{{ d.name }}</b><small>{{ d.install_id }}</small><span data-lan-clients>{% for client in d.lan_clients %}<small>↳ {{ client.name }} · {{ client.mode }} · {% if client.online %}ONLINE{% else %}OFFLINE{% endif %}</small>{% endfor %}</span></td><td>{{ d.get_mode_display }}<small>{{ d.get_activation_method_display }}</small></td><td data-device-ip>{{ d.last_ip|default:'—' }}</td><td>{% for cidr in d.allowed_ip_cidrs %}<span class="code">{{ cidr }}</span>{% empty %}—{% endfor %}</td><td><span data-device-seen>{{ d.last_seen_at|date:'d.m.Y H:i:s'|default:'—' }}</span><small data-device-presence class="{% if d.online %}online{% endif %}">{% if d.online %}● ONLINE{% else %}○ OFFLINE{% endif %}</small></td><td><span class="pill {{ d.status }}">{{ d.get_status_display }}</span></td><td><a class="button small" href="{% url 'device_edit' d.pk %}">Ruxsatlar</a></td></tr>
+  {% empty %}<tr><td colspan="7" class="empty">Qurilma ulanmagan. Activation key yoki login-parol yarating.</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+
+<div class="columns">
+  <section class="panel"><div class="panel-title"><h2>Telegram administratorlar</h2></div><ul class="cards-list">
+    {% for a in admins %}<li><span class="avatar">{{ a.display_name|default:'T'|slice:':1' }}</span><div><b>{{ a.display_name|default:'Telegram user' }}</b><small>ID {{ a.telegram_id }} · {{ a.permissions|join:', ' }}</small></div><form method="post" action="{% url 'telegram_admin_toggle' a.pk %}">{% csrf_token %}<button class="pill {% if a.active %}active{% endif %}">{% if a.active %}Faol{% else %}Nofaol{% endif %}</button></form></li>
+    {% empty %}<li class="empty">Telegram admin biriktirilmagan.</li>{% endfor %}
+  </ul></section>
+  <section class="panel"><div class="panel-title"><h2>Aktivatsiya hisoblari</h2></div><ul class="cards-list">
+    {% for e in enrollments %}<li><div><b>{{ e.label }}</b><small>Login: {{ e.username }} · Key: …{{ e.activation_key_hint }} · {{ e.get_mode_display }}</small><small>{% if e.key_used_at %}Key ishlatilgan: {{ e.key_used_at|date:'d.m.Y H:i' }}{% else %}Key ishlatilmagan{% endif %} · {{ e.used_count }}/{{ e.max_uses }}</small></div><form method="post" action="{% url 'enrollment_password_reset' e.pk %}">{% csrf_token %}<button class="pill">Yangi parol</button></form>{% if e.usable %}<form method="post" action="{% url 'enrollment_revoke' e.pk %}">{% csrf_token %}<button class="pill active">Tayyor ×</button></form>{% else %}<span class="pill">Yopiq</span>{% endif %}</li>
+    {% empty %}<li class="empty">Aktivatsiya yo‘q.</li>{% endfor %}
+  </ul></section>
+</div>
+
+<dialog id="adminDialog"><form method="post" action="{% url 'telegram_admin_add' store.pk %}" class="dialog-form">{% csrf_token %}<header><h2>Telegram admin</h2><button type="button" data-close>×</button></header>{{ admin_form.as_div }}<footer><button type="button" class="button" data-close>Bekor</button><button class="button primary">Biriktirish</button></footer></form></dialog>
+<dialog id="enrollDialog"><form method="post" action="{% url 'enrollment_add' store.pk %}" class="dialog-form">{% csrf_token %}<header><h2>Activation key va login</h2><button type="button" data-close>×</button></header><p>Har ikkala usul yaratiladi. Key faqat bitta yangi qurilmada ishlaydi; login-parol esa belgilangan foydalanish sonigacha ishlaydi.</p>{{ enrollment_form.as_div }}<footer><button type="button" class="button" data-close>Bekor</button><button class="button primary">Kirish ma’lumotlarini yaratish</button></footer></form></dialog>
+<dialog id="alertDialog"><form method="post" action="{% url 'alert_rule_update' store.pk %}" class="dialog-form">{% csrf_token %}<header><h2>Kam qoldiq ogohlantirishi</h2><button type="button" data-close>×</button></header>{{ alert_form.as_div }}{% if alert_rule.last_sent_at %}<p>Oxirgi yuborilgan: {{ alert_rule.last_sent_at|date:'d.m.Y H:i' }}</p>{% endif %}<footer><button type="button" class="button" data-close>Bekor</button><button class="button primary">Saqlash</button></footer></form></dialog>
+<script>
+document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>document.getElementById(b.dataset.open).showModal());
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
+const statusPanel=document.querySelector('[data-status-url]');
+const safe=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function refreshDevices(){if(!statusPanel||document.hidden)return;try{const data=await fetch(statusPanel.dataset.statusUrl).then(r=>r.json());data.devices.forEach(d=>{const row=document.querySelector(`[data-device-row="${d.id}"]`);if(!row)return;row.querySelector('[data-device-ip]').textContent=d.last_ip||'—';row.querySelector('[data-device-seen]').textContent=d.last_seen;row.querySelector('[data-lan-clients]').innerHTML=(d.lan_clients||[]).map(c=>`<small>↳ ${safe(c.name)} · ${safe(c.mode)} · ${c.online?'ONLINE':'OFFLINE'}</small>`).join('');const presence=row.querySelector('[data-device-presence]');presence.textContent=d.online?'● ONLINE':'○ OFFLINE';presence.classList.toggle('online',d.online)})}catch{}}
+setInterval(refreshDevices,120000);
+</script>
+{% endblock %}
