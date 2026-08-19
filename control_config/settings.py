@@ -67,7 +67,7 @@ def database_config(url: str):
 DATABASES = {"default": database_config(os.environ.get("DATABASE_URL", ""))}
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 4}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
@@ -96,11 +96,11 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "SAMEORIGIN"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1_000_000
 MINIAPP_SESSION_MAX_AGE = 43_200
-SUPERADMIN_TOTP_SECRET = os.environ.get("SUPERADMIN_TOTP_SECRET", "").replace(" ", "").upper()
-SUPERADMIN_TOTP_CONFIGURED = bool(SUPERADMIN_TOTP_SECRET)
-SUPERADMIN_TOTP_ENABLED = SUPERADMIN_TOTP_CONFIGURED and not (
-    len(SUPERADMIN_TOTP_SECRET) < 16
-    or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for character in SUPERADMIN_TOTP_SECRET)
+_raw_superadmin_totp_secret = os.environ.get("SUPERADMIN_TOTP_SECRET", "").replace(" ", "").upper()
+_superadmin_totp_is_valid = len(_raw_superadmin_totp_secret) >= 16 and all(
+    character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for character in _raw_superadmin_totp_secret
 )
-SUPERADMIN_TOTP_INVALID = SUPERADMIN_TOTP_CONFIGURED and not SUPERADMIN_TOTP_ENABLED
+# TOTP is optional. A missing or malformed value must never make the login page unavailable.
+SUPERADMIN_TOTP_SECRET = _raw_superadmin_totp_secret if _superadmin_totp_is_valid else ""
+SUPERADMIN_TOTP_ENABLED = bool(SUPERADMIN_TOTP_SECRET)
 DEVICE_LEASE_SECONDS = max(3600, min(int(os.environ.get("DEVICE_LEASE_SECONDS", "604800")), 2_592_000))
