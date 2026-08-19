@@ -3,7 +3,8 @@ const $=(s,p=document)=>p.querySelector(s), $$=(s,p=document)=>[...p.querySelect
 const money=v=>new Intl.NumberFormat('uz-UZ',{maximumFractionDigits:2}).format(Number(v||0));
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
-let stores=[],featureLabels={},currentReport='overview',currentSection='reports',socket,reconnectTimer,refreshTimer,staffCache={roles:[],staff:[]};
+const initialParams=new URLSearchParams(location.search),knownReports=new Set(['overview','sales_daily','sales_monthly','sales_hourly','top_products','low_stock','inventory_value','payment_mix','cashier_summary']);
+let stores=[],featureLabels={},currentReport=knownReports.has(initialParams.get('report'))?initialParams.get('report'):'overview',currentSection=['reports','devices','staff','features','print'].includes(initialParams.get('section'))?initialParams.get('section'):'reports',socket,reconnectTimer,refreshTimer,staffCache={roles:[],staff:[]};
 const pending=new Map();
 const today=new Date(),ago=new Date(Date.now()-29*86400000);
 $('[data-date-to]').value=today.toISOString().slice(0,10);$('[data-date-from]').value=ago.toISOString().slice(0,10);
