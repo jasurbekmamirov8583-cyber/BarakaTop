@@ -89,21 +89,30 @@ def panel_login(request):
             return redirect("panel_dashboard")
         logout(request)
     identity = client_ip(request)
+    if settings.SUPERADMIN_TOTP_INVALID:
+        return render(request, "control/login.html", {
+            "form": AuthenticationForm(),
+            "configuration_error": "SUPERADMIN_TOTP_SECRET noto‘g‘ri. Uni Render Environment bo‘limidan o‘chiring yoki kamida 16 belgili Base32 sir kiriting.",
+            "totp_enabled": False,
+        }, status=503)
     if throttle_blocked("panel-login", identity):
-        return render(request, "control/login.html", {"form": AuthenticationForm(), "blocked": True}, status=429)
+        return render(request, "control/login.html", {"form": AuthenticationForm(), "blocked": True, "totp_enabled": settings.SUPERADMIN_TOTP_ENABLED}, status=429)
     form = AuthenticationForm(request, data=request.POST or None)
-    if request.method == "POST" and form.is_valid() and form.get_user().is_superuser and verify_totp(request.POST.get("totp", ""), settings.SUPERADMIN_TOTP_SECRET):
+    totp_valid = not settings.SUPERADMIN_TOTP_ENABLED or verify_totp(
+        request.POST.get("totp", ""), settings.SUPERADMIN_TOTP_SECRET
+    )
+    if request.method == "POST" and form.is_valid() and form.get_user().is_superuser and totp_valid:
         throttle_clear("panel-login", identity)
         login(request, form.get_user())
         request.session["superadmin_2fa_at"] = timezone.now().timestamp()
         return redirect("panel_dashboard")
-    if request.method == "POST" and form.is_valid() and form.get_user().is_superuser:
+    if request.method == "POST" and form.is_valid() and form.get_user().is_superuser and settings.SUPERADMIN_TOTP_ENABLED:
         form.add_error(None, "Bir martalik 2FA kodi noto'g'ri.")
     if request.method == "POST" and form.is_valid():
         form.add_error(None, "Super administrator access is required.")
     if request.method == "POST":
         throttle_failure("panel-login", identity)
-    return render(request, "control/login.html", {"form": form})
+    return render(request, "control/login.html", {"form": form, "totp_enabled": settings.SUPERADMIN_TOTP_ENABLED})
 
 
 @require_POST
