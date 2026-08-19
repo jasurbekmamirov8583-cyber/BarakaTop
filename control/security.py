@@ -120,7 +120,7 @@ def valid_cidrs(text_or_list) -> list[str]:
         try:
             network = ipaddress.ip_network(value, strict=False)
         except ValueError as exc:
-            raise ValidationError(f"Invalid IP/CIDR: {value}") from exc
+            raise ValidationError(f"IP/CIDR noto‘g‘ri: {value}") from exc
         result.append(str(network))
     return result
 
@@ -167,7 +167,7 @@ def bearer_token(request) -> str:
 
 def validate_telegram_init_data(raw: str, max_age=600) -> dict:
     if not raw or not settings.TELEGRAM_BOT_TOKEN:
-        raise PermissionDenied("Telegram authentication is unavailable.")
+        raise PermissionDenied("Telegram orqali kirish ma’lumoti topilmadi.")
     pairs = dict(parse_qsl(raw, keep_blank_values=True))
     received_hash = pairs.pop("hash", "")
     pairs.pop("signature", None)
@@ -175,16 +175,16 @@ def validate_telegram_init_data(raw: str, max_age=600) -> dict:
     secret = hmac.new(b"WebAppData", settings.TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
     expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
     if not received_hash or not hmac.compare_digest(received_hash, expected):
-        raise PermissionDenied("Invalid Telegram signature.")
+        raise PermissionDenied("Telegram imzosi tasdiqlanmadi. Web-ilovani bot tugmasidan qayta oching.")
     auth_date = int(pairs.get("auth_date", "0"))
     if auth_date <= 0 or abs(time.time() - auth_date) > max_age:
-        raise PermissionDenied("Expired Telegram authentication.")
+        raise PermissionDenied("Telegram kirish ma’lumoti eskirgan. Web-ilovani qayta oching.")
     try:
         user = json.loads(pairs.get("user", "{}"))
     except json.JSONDecodeError as exc:
-        raise PermissionDenied("Invalid Telegram user data.") from exc
+        raise PermissionDenied("Telegram foydalanuvchi ma’lumoti noto‘g‘ri.") from exc
     if not user.get("id"):
-        raise PermissionDenied("Telegram user ID is missing.")
+        raise PermissionDenied("Telegram foydalanuvchi ID si topilmadi.")
     return user
 
 
@@ -201,4 +201,4 @@ def read_miniapp_session(token: str, with_remaining=False):
         telegram_id = int(payload["telegram_id"])
         return (telegram_id, remaining) if with_remaining else telegram_id
     except (signing.BadSignature, signing.SignatureExpired, KeyError, ValueError) as exc:
-        raise PermissionDenied("Mini App session expired.") from exc
+        raise PermissionDenied("Web-ilova seansi tugagan. Bot orqali qayta kiring.") from exc

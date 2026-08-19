@@ -101,14 +101,14 @@ def authenticate_device(token, install_id, ip):
     try:
         device = Device.objects.select_related("store").get(token_hash=device_token_hash(token), install_id=install_id)
     except (Device.DoesNotExist, ValueError) as exc:
-        raise PermissionDenied("Invalid device credential.") from exc
+        raise PermissionDenied("Qurilma kirish ma’lumoti noto‘g‘ri.") from exc
     device.last_ip = ip
     device.save(update_fields=("last_ip", "updated_at"))
     if device.status != Device.Status.ACTIVE or device.owner_paused or device.store.status not in {Store.Status.TRIAL, Store.Status.ACTIVE}:
-        raise PermissionDenied("Device is blocked.")
+        raise PermissionDenied("Qurilma bloklangan.")
     if not ip_allowed(ip, device.allowed_ip_cidrs):
         ControlAudit.objects.create(store=device.store, action="device.ip_denied", entity_type="Device", entity_id=str(device.pk), ip_address=ip)
-        raise PermissionDenied("IP address is not authorized.")
+        raise PermissionDenied("Bu IP manzilga ruxsat berilmagan.")
     device.last_seen_at = timezone.now()
     device.save(update_fields=("last_seen_at", "updated_at"))
     return str(device.pk), str(device.store_id), list(device.permissions)
@@ -119,7 +119,7 @@ def authenticate_admin(session_token):
     telegram_id, remaining = read_miniapp_session(session_token, with_remaining=True)
     rows = list(StoreAdmin.objects.filter(telegram_id=telegram_id, active=True, store__status__in=(Store.Status.TRIAL, Store.Status.ACTIVE)).values("store_id", "permissions"))
     if not rows:
-        raise PermissionDenied("No active store access.")
+        raise PermissionDenied("Faol do‘konga kirish ruxsati topilmadi.")
     return telegram_id, {str(row["store_id"]): list(row["permissions"]) for row in rows}, remaining
 
 
@@ -132,7 +132,7 @@ def device_for_admin(device_id, telegram_id):
         store__telegram_admins__active=True,
     ).values("store_id", "permissions", "mode", "store__telegram_admins__permissions").first()
     if not device:
-        raise PermissionDenied("Device is not available for this administrator.")
+        raise PermissionDenied("Bu qurilma administrator uchun mavjud emas.")
     return str(device["store_id"]), list(device["permissions"]), list(device["store__telegram_admins__permissions"]), device["mode"]
 
 
@@ -217,11 +217,11 @@ async def websocket_application(scope, receive, send):
         elif kind == "admin":
             origin = scope_headers(scope).get("origin", "").rstrip("/")
             if origin != settings.PUBLIC_BASE_URL:
-                raise PermissionDenied("Invalid WebSocket origin.")
+                raise PermissionDenied("Jonli aloqa manzili tasdiqlanmadi.")
             telegram_id, permissions, remaining = await authenticate_admin(cookie_value(scope, "orbit_mini_session"))
             peer = Peer(str(telegram_id) + "-" + secrets.token_urlsafe(8), send, "admin", set(permissions), permissions, expires_at=time.monotonic() + remaining)
         else:
-            raise PermissionDenied("Unknown peer type.")
+            raise PermissionDenied("Ulanish turi aniqlanmadi.")
     except PermissionDenied as exc:
         await send({"type": "websocket.close", "code": 4403, "reason": str(exc)[:120]})
         return
@@ -252,11 +252,11 @@ async def websocket_application(scope, receive, send):
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
-                await hub.send_json(peer, {"type": "error", "error": "Invalid JSON"}); continue
+                await hub.send_json(peer, {"type": "error", "error": "So‘rov ma’lumoti noto‘g‘ri."}); continue
             if message.get("type") in {"ping", "heartbeat"}:
                 policy = await device_still_authorized(peer.device_id, scope_ip(scope), peer.device_token) if peer.kind == "device" else None
                 if peer.kind == "device" and not policy:
-                    await send({"type": "websocket.close", "code": 4403, "reason": "Device authorization revoked"})
+                    await send({"type": "websocket.close", "code": 4403, "reason": "Qurilma ruxsati bekor qilingan"})
                     break
                 if peer.kind == "device" and policy:
                     peer.permissions[next(iter(peer.store_ids))] = list(policy.get("permissions", []))
@@ -268,14 +268,14 @@ async def websocket_application(scope, receive, send):
                     telegram_id = int(peer.peer_id.split("-", 1)[0])
                     store_id, device_permissions, admin_permissions, device_mode = await device_for_admin(device_id, telegram_id)
                     if not required or required not in admin_permissions or required not in device_permissions:
-                        raise PermissionDenied("This report is not permitted.")
+                        raise PermissionDenied("Bu hisobotni ko‘rishga ruxsat yo‘q.")
                     device_peer = hub.devices.get(device_id)
                     if not device_peer:
                         await hub.send_json(peer, {"type": "report_error", "request_id": message.get("request_id"), "error": "Do‘kon kompyuteri hozir online emas."}); continue
                     now = time.monotonic()
                     hub.pending = {key: value for key, value in hub.pending.items() if now - value[3] < 120}
                     if sum(1 for value in hub.pending.values() if value[0] == peer.peer_id) >= 5:
-                        raise PermissionDenied("Too many live report requests. Please wait.")
+                        raise PermissionDenied("Juda ko‘p hisobot so‘rovi yuborildi. Biroz kuting.")
                     upstream_id = secrets.token_urlsafe(18)
                     client_request_id = str(message.get("request_id", ""))[:80]
                     hub.pending[upstream_id] = (peer.peer_id, device_id, client_request_id, now, report)
@@ -293,7 +293,7 @@ async def websocket_application(scope, receive, send):
                     if not required or required not in admin_permissions or required not in device_permissions:
                         raise PermissionDenied("Bu boshqaruv amali uchun ruxsat yo‘q.")
                     if device_mode not in {"owner", "manager", "universal"}:
-                        raise PermissionDenied("Xodim va printer sozlamalari Owner yoki Manager qurilmasi orqali boshqariladi.")
+                        raise PermissionDenied("Xodim va printer sozlamalari Do‘kon egasi yoki Menejer kompyuteri orqali boshqariladi.")
                     device_peer = hub.devices.get(device_id)
                     if not device_peer:
                         raise PermissionDenied("Do‘kon kompyuteri hozir online emas.")
@@ -317,7 +317,7 @@ async def websocket_application(scope, receive, send):
                         if message["type"] == "report_result":
                             response["data"] = message.get("data", {})
                         else:
-                            response["error"] = str(message.get("error", "Report failed."))[:300]
+                            response["error"] = str(message.get("error", "Hisobotni olish amalga oshmadi."))[:300]
                         await hub.send_json(target, response)
             elif peer.kind == "device" and message.get("type") in {"command_result", "command_error"}:
                 pending = hub.command_pending.pop(str(message.get("request_id", "")), None)

@@ -26,6 +26,17 @@ FEATURE_CHOICES = (
     ("manufacturing", "Ishlab chiqarish"), ("restaurant", "Restoran"), ("employees", "Xodimlar"),
 )
 
+PERMISSION_CHOICES = (
+    ("overview", "Umumiy ko‘rsatkichlar"), ("sales", "Savdo hisobotlari"),
+    ("inventory", "Ombor qoldiqlari"), ("products", "Mahsulotlar tahlili"),
+    ("finance", "Moliya"), ("alerts", "Ogohlantirishlar"),
+    ("devices", "Qurilmalarni boshqarish"), ("staff", "Sotuvchilarni boshqarish"),
+    ("settings", "Funksiya va printer sozlamalari"),
+)
+
+FEATURE_LABELS = dict(FEATURE_CHOICES)
+PERMISSION_LABELS = dict(PERMISSION_CHOICES)
+
 
 def default_store_features():
     return ["pos", "inventory", "purchasing", "finance", "customers", "reports", "labels", "qr_receipt"]
@@ -49,10 +60,10 @@ class AuditQuerySet(models.QuerySet):
 
 class Store(Stamp):
     class Status(models.TextChoices):
-        TRIAL = "trial", "Trial"
-        ACTIVE = "active", "Active"
-        SUSPENDED = "suspended", "Suspended"
-        CLOSED = "closed", "Closed"
+        TRIAL = "trial", "Sinov muddati"
+        ACTIVE = "active", "Faol"
+        SUSPENDED = "suspended", "Vaqtincha to‘xtatilgan"
+        CLOSED = "closed", "Yopilgan"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     code = models.SlugField(max_length=40, unique=True)
@@ -81,6 +92,14 @@ class Store(Stamp):
     def active_features(self):
         return [code for code in self.enabled_features if code in set(self.licensed_features)]
 
+    @property
+    def licensed_feature_labels(self):
+        return [FEATURE_LABELS.get(code, code) for code in self.licensed_features]
+
+    @property
+    def active_feature_labels(self):
+        return [FEATURE_LABELS.get(code, code) for code in self.active_features]
+
 
 class StoreAdmin(Stamp):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="telegram_admins")
@@ -92,15 +111,19 @@ class StoreAdmin(Stamp):
     class Meta:
         constraints = [models.UniqueConstraint(fields=("store", "telegram_id"), name="uq_store_telegram_admin")]
 
+    @property
+    def permission_labels(self):
+        return [PERMISSION_LABELS.get(code, code) for code in self.permissions]
+
 
 class DeviceEnrollment(Stamp):
     class Mode(models.TextChoices):
-        OWNER = "owner", "Owner workstation"
-        POS = "pos", "POS register"
-        WAREHOUSE = "warehouse", "Warehouse"
-        MANAGER = "manager", "Manager"
-        UNIVERSAL = "universal", "Universal / role switching"
-        READ_ONLY = "read_only", "Read only"
+        OWNER = "owner", "Do‘kon egasi kompyuteri"
+        POS = "pos", "Sotuvchi / Kassa"
+        WAREHOUSE = "warehouse", "Omborchi"
+        MANAGER = "manager", "Menejer"
+        UNIVERSAL = "universal", "Universal / maqom almashtirish"
+        READ_ONLY = "read_only", "Faqat ko‘rish"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="enrollments")
@@ -126,14 +149,14 @@ class DeviceEnrollment(Stamp):
 
 class Device(Stamp):
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending approval"
-        ACTIVE = "active", "Active"
-        BLOCKED = "blocked", "Blocked"
-        REVOKED = "revoked", "Revoked"
+        PENDING = "pending", "Tasdiq kutilmoqda"
+        ACTIVE = "active", "Faol"
+        BLOCKED = "blocked", "Bloklangan"
+        REVOKED = "revoked", "Ruxsati bekor qilingan"
 
     class ActivationMethod(models.TextChoices):
-        PASSWORD = "password", "Login and password"
-        KEY = "key", "Activation key"
+        PASSWORD = "password", "Login va parol"
+        KEY = "key", "Aktivatsiya kaliti"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="devices")
@@ -194,6 +217,19 @@ class ControlAudit(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+
+    @property
+    def action_label(self):
+        return {
+            "store.create": "Do‘kon yaratildi", "store.update": "Do‘kon yangilandi",
+            "telegram_admin.create": "Telegram admin biriktirildi",
+            "telegram_admin.toggle": "Telegram admin holati o‘zgardi",
+            "enrollment.create": "Aktivatsiya yaratildi", "enrollment.revoke": "Aktivatsiya bekor qilindi",
+            "enrollment.password_reset": "Aktivatsiya paroli yangilandi",
+            "device.update": "Qurilma ruxsatlari yangilandi", "device.activate": "Qurilma faollashtirildi",
+            "device.pending": "Qurilma tasdiqqa yuborildi", "device.owner_update": "Qurilma egasi sozlamani o‘zgartirdi",
+            "store.features": "Do‘kon funksiyalari yangilandi", "alert_rule.update": "Ogohlantirish sozlamasi yangilandi",
+        }.get(self.action, self.action)
 
     def save(self, *args, **kwargs):
         if self.pk and type(self).objects.filter(pk=self.pk).exists():

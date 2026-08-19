@@ -30,7 +30,7 @@ from .security import (
     require_same_origin, signed_device_lease, throttle_blocked, throttle_clear, throttle_failure,
     validate_telegram_init_data, verify_totp,
 )
-from .telegram import configure_bot, send_webapp_button
+from .telegram import TelegramAPIError, configure_bot, send_text, send_webapp_button
 
 
 @require_http_methods(["GET", "HEAD"])
@@ -60,6 +60,14 @@ def audit(request, action, entity, store=None, metadata=None, telegram_id=None):
         entity_type=entity.__class__.__name__, entity_id=str(entity.pk),
         ip_address=client_ip(request), metadata=metadata or {},
     )
+
+
+def form_error_message(form):
+    parts = []
+    for name, errors in form.errors.items():
+        label = form.fields[name].label if name in form.fields else "Ma’lumot"
+        parts.extend(f"{label}: {error}" for error in errors)
+    return " ".join(parts) or "Kiritilgan ma’lumotlarni tekshiring."
 
 
 def superadmin_required(view):
@@ -113,7 +121,7 @@ def panel_login(request):
     if request.method == "POST" and form.is_valid() and form.get_user().is_superuser and settings.SUPERADMIN_TOTP_ENABLED:
         form.add_error(None, "Bir martalik 2FA kodi noto'g'ri.")
     if request.method == "POST" and form.is_valid():
-        form.add_error(None, "Super administrator access is required.")
+        form.add_error(None, "Faqat super-admin hisobiga kirish mumkin.")
     if request.method == "POST":
         throttle_failure("panel-login", identity)
     return render(request, "control/login.html", {"form": form, "totp_enabled": settings.SUPERADMIN_TOTP_ENABLED})
@@ -132,6 +140,7 @@ def dashboard(request):
     return render(request, "control/dashboard.html", {
         "store_count": stores.count(), "active_stores": stores.filter(status=Store.Status.ACTIVE).count(),
         "device_count": devices.count(), "pending_devices": devices.filter(status=Device.Status.PENDING).count(),
+        "telegram_ready": bool(settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_WEBHOOK_SECRET and settings.PUBLIC_BASE_URL.startswith("https://")),
         "recent_stores": stores.order_by("-created_at")[:8], "recent_audit": ControlAudit.objects.select_related("store", "actor")[:12],
     })
 
@@ -143,9 +152,9 @@ def telegram_configure(request):
         messages.error(request, "Telegram tokeni, webhook siri va HTTPS PUBLIC_BASE_URL sozlanishi kerak.")
     else:
         try:
-            configure_bot()
-            messages.success(request, "Telegram webhook va Mini App menyusi sozlandi.")
-        except Exception as exc:
+            result = configure_bot()
+            messages.success(request, f"Telegram @{result['username'] or 'bot'} webhooki va menyusi sozlandi.")
+        except TelegramAPIError as exc:
             messages.error(request, f"Telegram sozlanmadi: {str(exc)[:180]}")
     return redirect("panel_dashboard")
 
@@ -204,7 +213,7 @@ def telegram_admin_add(request, pk):
         audit(request, "telegram_admin.create", obj, store, {"telegram_id": obj.telegram_id})
         messages.success(request, "Telegram administrator biriktirildi.")
     else:
-        messages.error(request, form.errors.as_text())
+        messages.error(request, form_error_message(form))
     return redirect("store_detail", pk=store.pk)
 
 
@@ -243,7 +252,7 @@ def enrollment_add(request, pk):
         audit(request, "enrollment.create", enrollment, store, {"mode": enrollment.mode, "expected_ip_cidrs": enrollment.expected_ip_cidrs})
         messages.success(request, "Aktivatsiya ma’lumoti yaratildi. Parol faqat bir marta ko‘rsatiladi.")
     else:
-        messages.error(request, form.errors.as_text())
+        messages.error(request, form_error_message(form))
     return redirect("store_detail", pk=store.pk)
 
 
@@ -285,7 +294,7 @@ def alert_rule_update(request, pk):
         audit(request, "alert_rule.update", obj, store, {"enabled": obj.enabled, "cooldown_minutes": obj.cooldown_minutes})
         messages.success(request, "Telegram ogohlantirish sozlamalari saqlandi.")
     else:
-        messages.error(request, form.errors.as_text())
+        messages.error(request, form_error_message(form))
     return redirect("store_detail", pk=store.pk)
 
 
@@ -495,9 +504,23 @@ def telegram_webhook(request):
         return JsonResponse({"ok": False}, status=403)
     try:
         update = json_input(request)
-        message = update.get("message", {})
-        if message.get("text", "").startswith("/start") and message.get("chat", {}).get("id"):
-            send_webapp_button(message["chat"]["id"])
-    except Exception:
-        return JsonResponse({"ok": False}, status=400)
+        message = update.get("message") or {}
+        chat_id = message.get("chat", {}).get("id")
+        command = message.get("text", "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+        if chat_id and command in {"/start", "/app", "/panel"}:
+            registered = StoreAdmin.objects.filter(
+                telegram_id=chat_id, active=True,
+                store__status__in=(Store.Status.TRIAL, Store.Status.ACTIVE),
+            ).exists()
+            if registered:
+                send_webapp_button(chat_id)
+            else:
+                send_text(chat_id, f"Siz hali birorta do‘konga biriktirilmagansiz.\n\nTelegram ID: {chat_id}\n\nShu raqamni super-adminga yuboring.")
+        elif chat_id and command == "/id":
+            send_text(chat_id, f"Sizning Telegram ID raqamingiz: {chat_id}")
+        elif chat_id and command == "/help":
+            send_text(chat_id, "BarakaTop yordam:\n/start — boshqaruv tugmasi\n/app — web-ilovani ochish\n/id — Telegram ID ni ko‘rish\n\nKirish uchun Telegram ID do‘konga biriktirilgan bo‘lishi kerak.")
+    except (TelegramAPIError, ValidationError, ValueError, TypeError):
+        # Telegram update qayta-qayta yuborilmasligi uchun webhookni baribir tasdiqlaymiz.
+        return JsonResponse({"ok": True, "handled": False})
     return JsonResponse({"ok": True})
