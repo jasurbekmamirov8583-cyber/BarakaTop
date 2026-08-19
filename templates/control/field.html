@@ -1,6 +1,7 @@
-<div class="field{% if field.name == 'licensed_features' or field.name == 'permissions' %} field-wide choice-field{% elif field.name == 'notes' or field.name == 'allowed_ip_cidrs' or field.name == 'expected_ip_cidrs' %} field-wide{% elif field.name == 'active' or field.name == 'enabled' %} switch-field{% endif %}">
+<div class="field{% if field.name == 'licensed_features' or field.name == 'permissions' %} field-wide choice-field{% elif field.name == 'notes' or field.name == 'allowed_ip_cidrs' or field.name == 'expected_ip_cidrs' %} field-wide{% elif field.name == 'active' or field.name == 'enabled' or field.name == 'pos_session_unlimited' %} switch-field{% endif %}">
   <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required">*</span>{% endif %}</label>
   {{ field }}
   {% if field.help_text %}<small class="help">{{ field.help_text }}</small>{% endif %}
+  {% if field.name == 'pos_session_expires_on' %}<small class="help" data-session-days aria-live="polite"></small>{% endif %}
   {% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
 </div>

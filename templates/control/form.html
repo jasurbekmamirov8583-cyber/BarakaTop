@@ -1,4 +1,28 @@
 {% extends 'control/base.html' %}{% block title %}{{ title }} · BarakaTop{% endblock %}{% block content %}
 <div class="page-head"><div><a class="back-link" href="{{ back_url }}">← Orqaga</a><h1>{{ title }}</h1><p>Majburiy maydonlar <span class="required">*</span> bilan belgilangan.</p></div></div>
 <section class="panel form-panel"><form method="post" class="form-grid">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}{% include 'control/field.html' with field=field %}{% endfor %}<footer><a class="button" href="{{ back_url }}">Bekor qilish</a><button class="button primary" type="submit">Saqlash</button></footer></form></section>
+<script>
+(()=>{
+  const unlimited=document.getElementById('id_pos_session_unlimited');
+  const expiry=document.getElementById('id_pos_session_expires_on');
+  const output=document.querySelector('[data-session-days]');
+  if(!unlimited||!expiry||!output)return;
+  const pad=value=>String(value).padStart(2,'0');
+  const today=new Date(); today.setHours(0,0,0,0);
+  const todayValue=`${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+  expiry.min=todayValue;
+  const update=()=>{
+    expiry.disabled=unlimited.checked;
+    expiry.required=!unlimited.checked;
+    if(unlimited.checked){output.textContent='♾️ Cheksiz — admin o‘zgartirmaguncha login qayta so‘ralmaydi.';return}
+    if(!expiry.value){output.textContent='📅 Tugash sanasini tanlang — kunlar soni avtomatik hisoblanadi.';return}
+    const end=new Date(`${expiry.value}T00:00:00`);
+    const days=Math.floor((end-today)/86400000)+1;
+    output.textContent=days>0?`⏳ ${days} kun amal qiladi (tanlangan kun ham kiradi).`:'⚠️ O‘tgan sanani tanlab bo‘lmaydi.';
+  };
+  unlimited.addEventListener('change',update);
+  expiry.addEventListener('input',update);
+  update();
+})();
+</script>
 {% endblock %}
