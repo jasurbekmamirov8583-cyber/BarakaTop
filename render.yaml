@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: barakatop-control
+    runtime: python
+    plan: free
+    buildCommand: pip install --disable-pip-version-check -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: python manage.py migrate --noinput && python manage.py bootstrap_admin && uvicorn control_config.asgi:application --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/
+    envVars:
+      - key: DEBUG
+        value: "0"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DEVICE_TOKEN_PEPPER
+        generateValue: true
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      - key: SUPERADMIN_TOTP_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: BOOTSTRAP_ADMIN_USERNAME
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
