@@ -1,2 +1,4 @@
-{% extends 'control/base.html' %}{% block title %}{{ title }} · ORBIT{% endblock %}{% block content %}<div class="page-head"><div><a href="{{ back_url }}">← Orqaga</a><h1>{{ title }}</h1></div></div><section class="panel form-panel"><form method="post" class="form-grid">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<label>{{ field.label }}{% if field.field.required %} *{% endif %}{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>{% endfor %}<footer><a class="button" href="{{ back_url }}">Bekor</a><button class="button primary">Saqlash</button></footer></form></section>{% endblock %}
-
+{% extends 'control/base.html' %}{% block title %}{{ title }} · BarakaTop{% endblock %}{% block content %}
+<div class="page-head"><div><a class="back-link" href="{{ back_url }}">← Orqaga</a><h1>{{ title }}</h1><p>Majburiy maydonlar <span class="required">*</span> bilan belgilangan.</p></div></div>
+<section class="panel form-panel"><form method="post" class="form-grid">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}{% include 'control/field.html' with field=field %}{% endfor %}<footer><a class="button" href="{{ back_url }}">Bekor qilish</a><button class="button primary" type="submit">Saqlash</button></footer></form></section>
+{% endblock %}
