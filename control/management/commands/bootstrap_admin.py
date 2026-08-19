@@ -21,9 +21,9 @@ class Command(BaseCommand):
         if existing:
             if existing.is_superuser and existing.is_staff:
                 if reset_password:
-                    if len(password) < 10:
+                    if len(password) < 4:
                         self.stderr.write(self.style.ERROR(
-                            "Password reset requested, but BOOTSTRAP_ADMIN_PASSWORD has fewer than 10 characters."
+                            "Password reset requested, but BOOTSTRAP_ADMIN_PASSWORD has fewer than 4 characters."
                         ))
                         return
                     existing.set_password(password)
@@ -39,9 +39,9 @@ class Command(BaseCommand):
         if not password:
             self.stderr.write(self.style.ERROR("BOOTSTRAP_ADMIN_PASSWORD is not set; administrator was not created."))
             return
-        if len(password) < 10:
+        if len(password) < 4:
             self.stderr.write(self.style.ERROR(
-                "BOOTSTRAP_ADMIN_PASSWORD must contain at least 10 characters; administrator was not created."
+                "BOOTSTRAP_ADMIN_PASSWORD must contain at least 4 characters; administrator was not created."
             ))
             return
         User.objects.create_superuser(username=username, email=email, password=password)
