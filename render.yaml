@@ -3,7 +3,7 @@ services:
     name: barakatop-control
     runtime: python
     plan: free
-    buildCommand: pip install --disable-pip-version-check -r requirements.txt && python manage.py collectstatic --noinput
+    buildCommand: pip install --disable-pip-version-check -r requirements.txt && python manage.py check && python manage.py makemigrations --check --dry-run && python manage.py collectstatic --noinput
     startCommand: python manage.py migrate --noinput && python manage.py bootstrap_admin && python manage.py bootstrap_telegram && gunicorn control_config.asgi:application --bind 0.0.0.0:$PORT --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120
     healthCheckPath: /health/
     envVars:
