@@ -32,6 +32,7 @@ from .models import (
     Store,
     StoreAdmin,
 )
+from .privacy import audit_metadata
 from .security import (
     activation_key_hash,
     bearer_token,
@@ -87,7 +88,7 @@ def audit(request, action, entity, store=None, metadata=None, telegram_id=None):
         actor=request.user if getattr(request, "user", None) and request.user.is_authenticated else None,
         telegram_id=telegram_id, store=store, action=action,
         entity_type=entity.__class__.__name__, entity_id=str(entity.pk),
-        ip_address=client_ip(request), metadata=metadata or {},
+        ip_address=client_ip(request), metadata=audit_metadata(metadata),
     )
 
 
@@ -214,7 +215,9 @@ def store_detail(request, pk):
     credential = cache.get(f"created-credential:{credential_key}") if credential_key else None
     if credential_key:
         cache.delete(f"created-credential:{credential_key}")
-    alert_rule, _ = AlertRule.objects.get_or_create(store=store, event="low_stock")
+    alert_rule = AlertRule.objects.filter(store=store, event="low_stock").first()
+    if alert_rule is None:
+        alert_rule = AlertRule(store=store, event="low_stock")
     return render(request, "control/store_detail.html", {
         "store": store, "admins": store.telegram_admins.all(), "devices": store.devices.all(),
         "licensed_device_count": store.licensed_device_count,
@@ -484,10 +487,14 @@ def telegram_session(request):
             raise PermissionDenied("Sizga birorta do‘kon biriktirilmagan.")
         token = issue_miniapp_session(user["id"])
         response = JsonResponse({"ok": True, "user": {"id": user["id"], "name": user.get("first_name", "")}})
-        response.set_cookie("orbit_mini_session", token, max_age=settings.MINIAPP_SESSION_MAX_AGE, httponly=True, secure=not settings.DEBUG, samesite="Lax")
+        response.set_cookie(
+            "orbit_mini_session", token, max_age=settings.MINIAPP_SESSION_MAX_AGE,
+            httponly=True, secure=not settings.DEBUG,
+            samesite="Lax" if settings.DEBUG else "None", path="/",
+        )
         return response
     except (PermissionDenied, ValidationError) as exc:
-        return JsonResponse({"ok": False, "error": str(exc)}, status=403)
+        return JsonResponse({"ok": False, "error": str(exc), "code": getattr(exc, "code", "telegram_access_denied")}, status=403)
 
 
 @require_GET

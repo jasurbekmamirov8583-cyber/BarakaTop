@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import secrets
 import time
 from datetime import timedelta
@@ -15,6 +16,14 @@ from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
+
+log = logging.getLogger("control.telegram_auth")
+
+
+class TelegramInitDataError(PermissionDenied):
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.code = code
 
 
 def client_ip(request) -> str:
@@ -169,29 +178,65 @@ def bearer_token(request) -> str:
     return value[7:].strip()
 
 
-def validate_telegram_init_data(raw: str, max_age=600) -> dict:
+def validate_telegram_init_data(raw: str, max_age=None) -> dict:
     if not raw or not settings.TELEGRAM_BOT_TOKEN:
-        raise PermissionDenied("Telegram orqali kirish ma’lumoti topilmadi.")
-    pairs = dict(parse_qsl(raw, keep_blank_values=True))
+        raise TelegramInitDataError(
+            "Telegram orqali kirish ma’lumoti topilmadi. Web-ilovani bot tugmasidan oching.",
+            "telegram_init_data_missing",
+        )
+    if len(raw) > 16_384:
+        raise TelegramInitDataError("Telegram kirish ma’lumoti juda katta.", "telegram_init_data_invalid")
+    try:
+        parsed = parse_qsl(raw, keep_blank_values=True, strict_parsing=True, max_num_fields=32)
+    except ValueError as exc:
+        raise TelegramInitDataError("Telegram kirish ma’lumoti noto‘g‘ri.", "telegram_init_data_invalid") from exc
+    if len({key for key, _ in parsed}) != len(parsed):
+        raise TelegramInitDataError("Telegram kirish maydonlari takrorlangan.", "telegram_init_data_invalid")
+    pairs = dict(parsed)
     received_hash = pairs.pop("hash", "")
-    pairs.pop("signature", None)
+    # Bot-token HMAC validation excludes only `hash`. Telegram clients added
+    # `signature` in 2025; it must remain in this data-check-string. Excluding
+    # it rejects genuine initData produced by current Telegram clients.
     check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
     secret = hmac.new(b"WebAppData", settings.TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
     expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
-    if not received_hash or not hmac.compare_digest(received_hash, expected):
-        raise PermissionDenied("Telegram imzosi tasdiqlanmadi. Web-ilovani bot tugmasidan qayta oching.")
+    valid_hash = (
+        len(received_hash) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in received_hash)
+        and hmac.compare_digest(received_hash.lower(), expected)
+    )
+    if not valid_hash:
+        log.warning(
+            "Telegram initData HMAC mismatch (bot_id=%s, fields=%s)",
+            settings.TELEGRAM_BOT_TOKEN.partition(":")[0],
+            ",".join(sorted(pairs)),
+        )
+        raise TelegramInitDataError(
+            "Telegram imzosi tasdiqlanmadi. Bot tokeni yoki Mini App tugmasi sozlamasini tekshiring.",
+            "telegram_signature_invalid",
+        )
     try:
         auth_date = int(pairs.get("auth_date", "0"))
     except (TypeError, ValueError) as exc:
-        raise PermissionDenied("Telegram kirish vaqti noto‘g‘ri.") from exc
-    if auth_date <= 0 or abs(time.time() - auth_date) > max_age:
-        raise PermissionDenied("Telegram kirish ma’lumoti eskirgan. Web-ilovani qayta oching.")
+        raise TelegramInitDataError("Telegram kirish vaqti noto‘g‘ri.", "telegram_auth_date_invalid") from exc
+    max_age = int(max_age if max_age is not None else settings.TELEGRAM_INIT_DATA_MAX_AGE)
+    age = time.time() - auth_date
+    if auth_date <= 0 or age < -120 or age > max_age:
+        raise TelegramInitDataError(
+            "Telegram kirish ma’lumoti eskirgan. Web-ilovani bot tugmasidan qayta oching.",
+            "telegram_auth_expired",
+        )
     try:
         user = json.loads(pairs.get("user", "{}"))
     except json.JSONDecodeError as exc:
-        raise PermissionDenied("Telegram foydalanuvchi ma’lumoti noto‘g‘ri.") from exc
-    if not user.get("id"):
-        raise PermissionDenied("Telegram foydalanuvchi ID si topilmadi.")
+        raise TelegramInitDataError("Telegram foydalanuvchi ma’lumoti noto‘g‘ri.", "telegram_user_invalid") from exc
+    try:
+        telegram_id = int(user.get("id"))
+    except (TypeError, ValueError) as exc:
+        raise TelegramInitDataError("Telegram foydalanuvchi ID si topilmadi.", "telegram_user_invalid") from exc
+    if telegram_id <= 0:
+        raise TelegramInitDataError("Telegram foydalanuvchi ID si topilmadi.", "telegram_user_invalid")
+    user["id"] = telegram_id
     return user
 
 

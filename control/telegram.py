@@ -90,7 +90,41 @@ def answer_callback(callback_id: str, text=""):
     return bot_call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:180]})
 
 
+def sanitize_sale_notification_payload(payload: dict) -> dict:
+    """Allow only receipt fields needed for the transient Telegram message."""
+    payload = payload if isinstance(payload, dict) else {}
+    scalar_limits = {
+        "number": 80, "cashier": 160, "customer": 160,
+        "currency": 12, "discount": 40, "total": 40,
+    }
+    sanitized = {
+        key: str(payload.get(key, ""))[:limit]
+        for key, limit in scalar_limits.items()
+        if key in payload
+    }
+    sanitized["items"] = [
+        {
+            "name": str(item.get("name", ""))[:160],
+            "quantity": str(item.get("quantity", ""))[:40],
+            "unit": str(item.get("unit", ""))[:24],
+            "total": str(item.get("total", ""))[:40],
+        }
+        for item in list(payload.get("items") or [])[:100]
+        if isinstance(item, dict)
+    ]
+    sanitized["payments"] = [
+        {
+            "method": str(row.get("method", ""))[:40],
+            "amount": str(row.get("amount", ""))[:40],
+        }
+        for row in list(payload.get("payments") or [])[:20]
+        if isinstance(row, dict)
+    ]
+    return sanitized
+
+
 def send_sale_notification(chat_id: int, store_name: str, payload: dict):
+    payload = sanitize_sale_notification_payload(payload)
     items = list(payload.get("items") or [])
     item_lines = [
         f"  • {escape(str(item.get('name', ''))[:80])} — {escape(str(item.get('quantity', '')))} "

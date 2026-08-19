@@ -17,11 +17,13 @@ from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 
 from .models import AlertRule, ControlAudit, Device, NotificationReceipt, Store, StoreAdmin
+from .privacy import audit_metadata, command_payload, report_params
 from .security import device_token_hash, ip_allowed, read_miniapp_session, signed_device_lease
-from .telegram import send_alert, send_sale_notification
+from .telegram import sanitize_sale_notification_payload, send_alert, send_sale_notification
 
 log = logging.getLogger("control.relay")
 MAX_MESSAGE = 2_000_000
+ADMIN_MAX_MESSAGE = 128_000
 REPORT_PERMISSION = {
     "overview": "overview", "sales_daily": "sales", "sales_monthly": "sales", "sales_hourly": "sales",
     "top_products": "products", "low_stock": "inventory", "inventory_value": "inventory",
@@ -154,7 +156,7 @@ def device_still_authorized(device_id, ip, token):
 
 @sync_to_async
 def record_report_audit(telegram_id, store_id, device_id, report):
-    ControlAudit.objects.create(telegram_id=telegram_id, store_id=store_id, action="report.live", entity_type="Device", entity_id=device_id, metadata={"report": report})
+    ControlAudit.objects.create(telegram_id=telegram_id, store_id=store_id, action="report.live", entity_type="Device", entity_id=device_id, metadata=audit_metadata({"report": report}))
 
 
 @sync_to_async
@@ -174,7 +176,7 @@ def mark_alert_sent(rule_id, recipient_count):
     rule = AlertRule.objects.select_related("store").get(pk=rule_id)
     rule.last_sent_at = timezone.now()
     rule.save(update_fields=("last_sent_at", "updated_at"))
-    ControlAudit.objects.create(store=rule.store, action="alert.dispatched", entity_type="AlertRule", entity_id=str(rule.pk), metadata={"event": rule.event, "recipient_count": recipient_count})
+    ControlAudit.objects.create(store=rule.store, action="alert.dispatched", entity_type="AlertRule", entity_id=str(rule.pk), metadata=audit_metadata({"event": rule.event, "recipient_count": recipient_count}))
 
 
 async def send_device_alert(peer, message):
@@ -232,7 +234,7 @@ async def send_device_event(peer, message):
     event_id = str(UUID(str(message.get("event_id", ""))))
     if event != "sale.completed":
         raise PermissionDenied("Qurilma hodisasi qo‘llab-quvvatlanmaydi.")
-    payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+    payload = sanitize_sale_notification_payload(message.get("payload"))
     store_id = next(iter(peer.store_ids))
     receipt_id, store_name, recipients, already_complete = await prepare_device_event(
         store_id, event_id, event
@@ -299,7 +301,8 @@ async def websocket_application(scope, receive, send):
             if event["type"] != "websocket.receive":
                 continue
             raw = event.get("text", "")
-            if len(raw) > MAX_MESSAGE:
+            message_limit = ADMIN_MAX_MESSAGE if peer.kind == "admin" else MAX_MESSAGE
+            if len(raw) > message_limit:
                 await send({"type": "websocket.close", "code": 4409, "reason": "Message too large"})
                 break
             try:
@@ -335,7 +338,7 @@ async def websocket_application(scope, receive, send):
                     upstream_id = secrets.token_urlsafe(18)
                     client_request_id = str(message.get("request_id", ""))[:80]
                     hub.pending[upstream_id] = (peer.peer_id, device_id, client_request_id, now, report)
-                    forwarded = {"type": "report_request", "request_id": upstream_id, "report": report, "params": message.get("params", {})}
+                    forwarded = {"type": "report_request", "request_id": upstream_id, "report": report, "params": report_params(message.get("params"))}
                     await hub.send_json(device_peer, forwarded)
                     await record_report_audit(telegram_id, store_id, device_id, report)
                 except PermissionDenied as exc:
@@ -360,7 +363,7 @@ async def websocket_application(scope, receive, send):
                     upstream_id = secrets.token_urlsafe(18)
                     client_request_id = str(message.get("request_id", ""))[:80]
                     hub.command_pending[upstream_id] = (peer.peer_id, device_id, client_request_id, now)
-                    await hub.send_json(device_peer, {"type": "command_request", "request_id": upstream_id, "command": command, "payload": message.get("payload", {}), "actor_telegram_id": telegram_id})
+                    await hub.send_json(device_peer, {"type": "command_request", "request_id": upstream_id, "command": command, "payload": command_payload(command, message.get("payload")), "actor_telegram_id": telegram_id})
                     await record_report_audit(telegram_id, store_id, device_id, "command:" + command)
                 except PermissionDenied as exc:
                     await hub.send_json(peer, {"type": "command_error", "request_id": message.get("request_id"), "error": str(exc)})

@@ -11,11 +11,13 @@ from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import User
+from django.core.exceptions import PermissionDenied
 from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from .forms import StoreForm
 from .models import Device, DeviceEnrollment, NotificationReceipt, Store, StoreAdmin
+from .privacy import audit_metadata, command_payload, report_params
 from .relay import Peer, send_device_event
 from .security import (
     activation_key_hash,
@@ -89,10 +91,12 @@ class DeviceActivationTests(TransactionTestCase):
         self.assertEqual(second.status_code, 403)
 
 
-@override_settings(TELEGRAM_BOT_TOKEN="123456:test-token", SECURE_SSL_REDIRECT=False)
+@override_settings(TELEGRAM_BOT_TOKEN="123456:test-token", DEBUG=False, SECURE_SSL_REDIRECT=False)
 class TelegramValidationTests(TransactionTestCase):
-    def signed_data(self, telegram_id=998877):
+    def signed_data(self, telegram_id=998877, *, include_signature=True):
         values = {"auth_date": str(int(time.time())), "query_id": "abc", "user": json.dumps({"id": telegram_id, "first_name": "Owner"}, separators=(",", ":"))}
+        if include_signature:
+            values["signature"] = "telegram-ed25519-signature_v2"
         check = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
         secret = hmac.new(b"WebAppData", settings.TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
         values["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
@@ -101,12 +105,24 @@ class TelegramValidationTests(TransactionTestCase):
     def test_valid_telegram_signature(self):
         self.assertEqual(validate_telegram_init_data(self.signed_data())["id"], 998877)
 
+    def test_legacy_init_data_without_signature_is_still_valid(self):
+        self.assertEqual(
+            validate_telegram_init_data(self.signed_data(include_signature=False))["id"],
+            998877,
+        )
+
+    def test_signature_field_is_part_of_bot_token_hmac(self):
+        raw = self.signed_data().replace("signature=telegram-ed25519-signature_v2", "signature=changed")
+        with self.assertRaises(PermissionDenied):
+            validate_telegram_init_data(raw)
+
     def test_session_requires_assigned_store(self):
         store = Store.objects.create(code="telegram-shop", name="Telegram Shop", status=Store.Status.ACTIVE)
         StoreAdmin.objects.create(store=store, telegram_id=998877, display_name="Owner")
         response = self.client.post("/api/v1/telegram/session/", data=json.dumps({"init_data": self.signed_data()}), content_type="application/json")
         self.assertEqual(response.status_code, 200)
         self.assertIn("orbit_mini_session", response.cookies)
+        self.assertEqual(response.cookies["orbit_mini_session"]["samesite"], "None")
 
     def test_store_admin_can_only_enable_licensed_features(self):
         store = Store.objects.create(code="feature-shop", name="Feature Shop", status=Store.Status.ACTIVE, licensed_features=["pos", "inventory"], enabled_features=["pos"])
@@ -186,6 +202,29 @@ class ControlActionsTests(TransactionTestCase):
         self.assertTrue(NotificationReceipt.objects.get(event_id=event_id).completed_at)
         self.assertEqual([json.loads(message["text"])["type"] for message in messages], ["event_ack", "event_ack"])
 
+    @patch("control.relay.send_sale_notification")
+    def test_sale_event_drops_unapproved_payload_fields(self, send_sale):
+        store = Store.objects.create(code="private-sale", name="Private Sale", status=Store.Status.ACTIVE)
+        StoreAdmin.objects.create(store=store, telegram_id=112233, display_name="Owner")
+
+        async def capture(_message):
+            return None
+
+        peer = Peer("private-device", capture, "device", {str(store.pk)}, {str(store.pk): ["sales"]}, "device-id")
+        payload = {
+            "number": "POS-2", "total": "20000", "currency": "UZS",
+            "items": [], "payments": [],
+            "internal_note": "SERVERDA SAQLANMASIN",
+            "customer_phone": "+998000000000",
+        }
+        async_to_sync(send_device_event)(peer, {
+            "event_id": str(uuid4()), "event": "sale.completed", "payload": payload,
+        })
+        forwarded = send_sale.call_args.args[2]
+        self.assertNotIn("internal_note", forwarded)
+        self.assertNotIn("customer_phone", forwarded)
+        self.assertFalse(hasattr(NotificationReceipt, "payload"))
+
 
 class StoreSessionPolicyFormTests(TransactionTestCase):
     def form_data(self, **overrides):
@@ -227,3 +266,33 @@ class StoreSessionPolicyFormTests(TransactionTestCase):
         self.assertTrue(valid.is_valid(), valid.errors)
         store = valid.save()
         self.assertEqual(store.pos_session_days_remaining, 10)
+
+
+class CloudDataBoundaryTests(TransactionTestCase):
+    def test_audit_metadata_rejects_business_and_secret_payloads(self):
+        cleaned = audit_metadata({
+            "report": "overview",
+            "payload": {"sales": 100000},
+            "items": [{"name": "Mahsulot"}],
+            "customer": "Mijoz",
+            "password": "secret",
+            "token": "secret-token",
+        })
+        self.assertEqual(cleaned, {"report": "overview"})
+
+    def test_control_database_has_no_pos_business_models(self):
+        from django.apps import apps
+
+        model_names = {model.__name__.lower() for model in apps.get_app_config("control").get_models()}
+        forbidden = {"sale", "saleline", "product", "stockbalance", "customer", "payment", "purchase"}
+        self.assertFalse(model_names.intersection(forbidden))
+
+    def test_relay_forwards_only_known_request_fields(self):
+        self.assertEqual(
+            report_params({"date_from": "2026-08-01", "date_to": "2026-08-19", "sql": "DROP"}),
+            {"date_from": "2026-08-01", "date_to": "2026-08-19"},
+        )
+        self.assertEqual(
+            command_payload("staff.toggle", {"member_id": 7, "password": "hidden", "extra": "no"}),
+            {"member_id": 7},
+        )
