@@ -9,9 +9,23 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "unsafe-development-only-change
 DEBUG = os.environ.get("DEBUG", "0") == "1"
 if not DEBUG and SECRET_KEY == "unsafe-development-only-change-me":
     raise RuntimeError("DJANGO_SECRET_KEY must be set outside development.")
-ALLOWED_HOSTS = [v.strip() for v in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if v.strip()]
-CSRF_TRUSTED_ORIGINS = [v.strip() for v in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if v.strip()]
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+RENDER_EXTERNAL_HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+PUBLIC_BASE_URL = (
+    os.environ.get("PUBLIC_BASE_URL", "").strip()
+    or RENDER_EXTERNAL_URL
+    or (f"https://{RENDER_EXTERNAL_HOSTNAME}" if RENDER_EXTERNAL_HOSTNAME else "http://127.0.0.1:8000")
+).rstrip("/")
+public_url = urlparse(PUBLIC_BASE_URL)
+configured_hosts = [value.strip() for value in os.environ.get("ALLOWED_HOSTS", "").split(",") if value.strip()]
+ALLOWED_HOSTS = list(dict.fromkeys([
+    "127.0.0.1", "localhost", *configured_hosts,
+    *([RENDER_EXTERNAL_HOSTNAME] if RENDER_EXTERNAL_HOSTNAME else []),
+    *([public_url.hostname] if public_url.hostname else []),
+]))
+configured_origins = [value.strip().rstrip("/") for value in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if value.strip()]
+public_origin = f"{public_url.scheme}://{public_url.netloc}" if public_url.scheme in {"http", "https"} and public_url.netloc else ""
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*configured_origins, *([public_origin] if public_origin else [])]))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
 DEVICE_TOKEN_PEPPER = os.environ.get("DEVICE_TOKEN_PEPPER", SECRET_KEY)
