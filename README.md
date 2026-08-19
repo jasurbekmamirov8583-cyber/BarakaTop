@@ -22,7 +22,7 @@ Render's `RENDER_EXTERNAL_URL` and `RENDER_EXTERNAL_HOSTNAME` values are detecte
 
 This directory is a complete, standalone GitHub/Render application. Create a repository whose root contains these files (including this directory's `render.yaml`), then create a Render Blueprint from that repository. Do not upload the local POS source code to that repository.
 
-After the environment variables are set, open the super-admin dashboard and press **Telegramni sozlash**. That action registers both the signed webhook and the Mini App menu button through Telegram's Bot API.
+After the environment variables are set, every deploy runs `bootstrap_telegram` and safely registers the signed webhook, bot commands, and Mini App menu. The **Telegram botni tekshirish** button in the dashboard can repeat that configuration manually without exposing the bot token.
 
 Never expose `TELEGRAM_BOT_TOKEN`, `DATABASE_URL`, or `DJANGO_SECRET_KEY` to frontend JavaScript.
 

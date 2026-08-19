@@ -7,7 +7,7 @@
 5. Deploy. The build installs dependencies and collects static assets. Each service start safely applies migrations, creates the first superuser once, then launches Uvicorn/ASGI.
 6. Log in at `/panel/login/`. Immediately remove `BOOTSTRAP_ADMIN_PASSWORD` from Render after verifying the first login; existing administrator passwords are never overwritten by later deploys. Missing or short bootstrap credentials no longer stop the web service, but no administrator is created until valid values are supplied and the service is redeployed. If the administrator already exists and its password is unknown, temporarily set `BOOTSTRAP_ADMIN_RESET_PASSWORD=1`, set a new 4+ character `BOOTSTRAP_ADMIN_PASSWORD`, deploy once, then return the reset flag to `0` and remove the password variable.
 7. In BotFather create a bot. Put its token in `TELEGRAM_BOT_TOKEN`.
-8. Open `/panel/` and click **Telegramni sozlash**. The server registers the signed webhook and the default Mini App menu button through the Bot API.
+8. The deploy automatically configures the Telegram webhook, commands, and Mini App menu. Confirm that the log contains `Telegram bot @... webhook configured`. You can also repeat it from `/panel/` with **Telegram botni tekshirish**.
 9. Create a shop, set its maximum device count, add the owner's numeric Telegram ID, choose the report/alert scopes, then generate an activation account. Copy the one-time key or login/password before leaving the page.
 10. Put the final Render URL into `desktop/orbit-config.json`, set `cloud_required` to `true`, and build the installer. Give the one-time enrollment values to the shop operator.
 

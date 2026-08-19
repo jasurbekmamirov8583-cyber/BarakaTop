@@ -6,4 +6,4 @@ Desktop POS kodi, loyiha ildizidagi `BarakaTop.pyw`, `dist/`, `build/`, lokal ba
 
 Render’da **New → Blueprint** orqali GitHub repositoriyasini tanlang. Muhit qiymatlarini `.env.example` asosida Render paneliga kiriting; haqiqiy sirlarni `.env` yoki GitHub ichiga yozmang.
 
-Supabase uchun `Connect` bo‘limidagi Shared Pooler Session mode, port `5432` manzilidan foydalaning. Birinchi deploydan so‘ng `/panel/login/` sahifasiga kiring, Telegram botni sozlang va test do‘kon/qurilma bilan aktivatsiya hamda jonli ulanishni tekshiring.
+Supabase uchun `Connect` bo‘limidagi Shared Pooler Session mode, port `5432` manzilidan foydalaning. Deploy Telegram webhook va Mini App menyusini avtomatik sozlaydi. Logda `Telegram bot @... webhook configured` yozuvini tekshiring, so‘ng `/panel/login/` orqali test do‘kon/qurilma bilan aktivatsiya hamda jonli ulanishni sinang.
