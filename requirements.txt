@@ -1,4 +1,4 @@
 Django>=5.2.16,<5.3
-uvicorn[standard]>=0.35,<1.0
+gunicorn>=23,<24
 psycopg[binary]>=3.2,<3.3
 whitenoise>=6.9,<7.0
