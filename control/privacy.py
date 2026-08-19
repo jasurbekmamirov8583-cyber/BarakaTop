@@ -50,19 +50,6 @@ def command_payload(command: str, values) -> dict:
         "staff.qr": {"member_id", "rotate"},
         "lan.update": {"client_id", "name", "mode", "active"},
     }.get(command, set())
-    if command == "settings.update":
-        incoming = values.get("settings") if isinstance(values.get("settings"), dict) else {}
-        setting_keys = {
-            "receipt_printer_name", "label_printer_name", "receipt_width_mm",
-            "auto_print_receipt", "receipt_qr_mode", "receipt_qr_template",
-            "receipt_footer", "label_size", "label_layout", "label_order",
-            "label_columns", "label_show_price", "label_show_sku", "label_show_store",
-        }
-        return {"settings": {
-            key: value[:300] if isinstance(value, str) else value
-            for key, value in incoming.items()
-            if key in setting_keys and isinstance(value, (str, int, float, bool))
-        }}
     return {
         key: value[:300] if isinstance(value, str) else value
         for key, value in values.items()

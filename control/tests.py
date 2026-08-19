@@ -124,6 +124,13 @@ class TelegramValidationTests(TransactionTestCase):
         self.assertIn("orbit_mini_session", response.cookies)
         self.assertEqual(response.cookies["orbit_mini_session"]["samesite"], "None")
 
+    def test_miniapp_has_no_remote_printer_tab(self):
+        response = self.client.get("/app/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'data-section="print"')
+        self.assertNotContains(response, "<span>Printer</span>", html=True)
+        self.assertContains(response, "Sotuvchilar")
+
     def test_store_admin_can_only_enable_licensed_features(self):
         store = Store.objects.create(code="feature-shop", name="Feature Shop", status=Store.Status.ACTIVE, licensed_features=["pos", "inventory"], enabled_features=["pos"])
         StoreAdmin.objects.create(store=store, telegram_id=998877, display_name="Owner", permissions=["settings"])

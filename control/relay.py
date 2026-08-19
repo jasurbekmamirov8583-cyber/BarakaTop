@@ -31,7 +31,6 @@ REPORT_PERMISSION = {
 }
 COMMAND_PERMISSION = {
     "staff.list": "staff", "staff.create": "staff", "staff.toggle": "staff", "staff.password_reset": "staff", "staff.update_role": "staff", "staff.qr": "staff",
-    "settings.get": "settings", "settings.update": "settings",
     "lan.list": "devices", "lan.update": "devices",
 }
 
@@ -352,7 +351,7 @@ async def websocket_application(scope, receive, send):
                     if not required or required not in admin_permissions or required not in device_permissions:
                         raise PermissionDenied("Bu boshqaruv amali uchun ruxsat yo‘q.")
                     if device_mode not in {"owner", "manager", "universal"}:
-                        raise PermissionDenied("Xodim va printer sozlamalari Do‘kon egasi yoki Menejer kompyuteri orqali boshqariladi.")
+                        raise PermissionDenied("Xodim va qurilma sozlamalari Do‘kon egasi yoki Menejer kompyuteri orqali boshqariladi.")
                     device_peer = hub.devices.get(device_id)
                     if not device_peer:
                         raise PermissionDenied("Do‘kon kompyuteri hozir online emas.")
