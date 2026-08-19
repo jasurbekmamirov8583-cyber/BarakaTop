@@ -368,10 +368,10 @@ def device_activate(request):
             return JsonResponse({"ok": False, "error": "Ko‘p xato urinish. 10 daqiqadan so‘ng qayta urinib ko‘ring."}, status=429)
         supplied_key = str(data.get("activation_key", "")).strip()
         if supplied_key:
-            enrollment = DeviceEnrollment.objects.select_for_update().select_related("store").get(activation_key_hash=activation_key_hash(supplied_key), store__code=data.get("store_code", ""))
+            enrollment = DeviceEnrollment.objects.select_for_update().select_related("store").get(activation_key_hash=activation_key_hash(supplied_key), store__code__iexact=str(data.get("store_code", "")).strip())
             activation_method = Device.ActivationMethod.KEY
         else:
-            enrollment = DeviceEnrollment.objects.select_for_update().select_related("store").get(username=data.get("username", ""), store__code=data.get("store_code", ""))
+            enrollment = DeviceEnrollment.objects.select_for_update().select_related("store").get(username__iexact=str(data.get("username", "")).strip(), store__code__iexact=str(data.get("store_code", "")).strip())
             activation_method = Device.ActivationMethod.PASSWORD
         install_id = UUID(str(data.get("install_id", "")))
         existing = Device.objects.select_for_update().filter(install_id=install_id).first()
@@ -420,7 +420,7 @@ def device_activate(request):
         return JsonResponse({"ok": False, "status": device.status, "device_id": str(device.pk), "message": "Qurilma super administrator tasdig‘ini kutmoqda.", "observed_ip": ip, "mode": device.mode, "activation_method": device.activation_method}, status=202)
     except DeviceEnrollment.DoesNotExist:
         throttle_failure("device-activate", client_ip(request))
-        return JsonResponse({"ok": False, "error": "Aktivatsiya ma’lumotlari noto‘g‘ri."}, status=403)
+        return JsonResponse({"ok": False, "error": "Do‘kon kodi yoki POS aktivatsiya ma’lumoti topilmadi. Web adminda do‘kon ichidan ‘Aktivatsiya yaratish’ orqali login-parol yoki kalit yarating."}, status=403)
     except (PermissionDenied, ValidationError, ValueError) as exc:
         throttle_failure("device-activate", client_ip(request))
         return JsonResponse({"ok": False, "error": str(exc)}, status=403)

@@ -42,7 +42,7 @@ class DeviceActivationTests(TransactionTestCase):
         self.store.pos_session_expires_on = timezone.localdate() + timedelta(days=30)
         self.store.save(update_fields=("pos_session_unlimited", "pos_session_expires_on", "updated_at"))
         install_id = str(uuid4())
-        response = self.client.post("/api/v1/device/activate/", data=json.dumps({"store_code": "shop-1", "username": "device-user", "password": "StrongDevicePass1", "install_id": install_id, "device_name": "Till 1"}), content_type="application/json", HTTP_X_FORWARDED_FOR="203.0.113.7")
+        response = self.client.post("/api/v1/device/activate/", data=json.dumps({"store_code": "SHOP-1", "username": "DEVICE-USER", "password": "StrongDevicePass1", "install_id": install_id, "device_name": "Till 1"}), content_type="application/json", HTTP_X_FORWARDED_FOR="203.0.113.7")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["enrollment_username"], "device-user")
