@@ -104,3 +104,18 @@ _superadmin_totp_is_valid = len(_raw_superadmin_totp_secret) >= 16 and all(
 SUPERADMIN_TOTP_SECRET = _raw_superadmin_totp_secret if _superadmin_totp_is_valid else ""
 SUPERADMIN_TOTP_ENABLED = bool(SUPERADMIN_TOTP_SECRET)
 DEVICE_LEASE_SECONDS = max(3600, min(int(os.environ.get("DEVICE_LEASE_SECONDS", "604800")), 2_592_000))
+
+# Gunicorn access logs only show the HTTP 500 status by default. Keep Django
+# request tracebacks in Render logs so production failures remain diagnosable.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}

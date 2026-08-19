@@ -6,7 +6,7 @@ from django.core.asgi import get_asgi_application
 
 django_application = get_asgi_application()
 
-from control.relay import websocket_application
+from control.relay import websocket_application  # noqa: E402
 
 
 async def application(scope, receive, send):
@@ -16,4 +16,3 @@ async def application(scope, receive, send):
         await send({"type": "websocket.close", "code": 4404})
         return
     return await django_application(scope, receive, send)
-
