@@ -26,8 +26,9 @@ ALLOWED_HOSTS = list(dict.fromkeys([
 configured_origins = [value.strip().rstrip("/") for value in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if value.strip()]
 public_origin = f"{public_url.scheme}://{public_url.netloc}" if public_url.scheme in {"http", "https"} and public_url.netloc else ""
 CSRF_TRUSTED_ORIGINS = list(dict.fromkeys([*configured_origins, *([public_origin] if public_origin else [])]))
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+_telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip().strip('"').strip("'")
+TELEGRAM_BOT_TOKEN = _telegram_token[3:] if _telegram_token.lower().startswith("bot") else _telegram_token
+TELEGRAM_WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 DEVICE_TOKEN_PEPPER = os.environ.get("DEVICE_TOKEN_PEPPER", SECRET_KEY)
 
 INSTALLED_APPS = [
