@@ -1,9 +1,10 @@
 {% extends 'control/base.html' %}
 {% block title %}{{ store.name }} · BarakaTop{% endblock %}
 {% block content %}
+{% url 'store_delete' store.pk as store_delete_url %}
 <div class="page-head store-head">
   <div><a class="back-link" href="{% url 'stores' %}">← Do‘konlar</a><p class="overline">DO‘KON KODI: {{ store.code }}</p><h1>{{ store.name }}</h1><p>{{ store.owner_name|default:'Egasi kiritilmagan' }}{% if store.owner_phone %} · {{ store.owner_phone }}{% endif %}</p></div>
-  <div class="actions"><a class="button" href="{% url 'store_edit' store.pk %}">Tahrirlash</a><button class="button" type="button" data-open="alertDialog">Ogohlantirish</button><button class="button" type="button" data-open="adminDialog">+ Telegram admin</button><button class="button primary" type="button" data-open="enrollDialog">+ Aktivatsiya yaratish</button><form method="post" action="{% url 'store_delete' store.pk %}" data-no-loading onsubmit="return confirm('{{ store.name|escapejs }} do‘koni, qurilmalari va aktivatsiyalari butunlay o‘chirilsinmi?')">{% csrf_token %}<button class="button danger" type="submit">Do‘konni o‘chirish</button></form></div>
+  <div class="actions"><a class="button" href="{% url 'store_edit' store.pk %}">Tahrirlash</a><button class="button" type="button" data-open="alertDialog">Ogohlantirish</button><button class="button" type="button" data-open="adminDialog">+ Telegram admin</button><button class="button primary" type="button" data-open="enrollDialog">+ Aktivatsiya yaratish</button>{% if store_delete_url %}<form method="post" action="{{ store_delete_url }}" data-no-loading onsubmit="return confirm('{{ store.name|escapejs }} do‘koni, qurilmalari va aktivatsiyalari butunlay o‘chirilsinmi?')">{% csrf_token %}<button class="button danger" type="submit">Do‘konni o‘chirish</button></form>{% endif %}</div>
 </div>
 
 {% if credential %}
