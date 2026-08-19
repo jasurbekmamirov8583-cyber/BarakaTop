@@ -14,7 +14,7 @@ Report payloads are never inserted into Supabase. If either endpoint disconnects
 
 Copy `.env.example` values into Render environment variables. Use the Supabase **Session Pooler** connection string on port 5432 for the persistent Render service. Run migrations, then create the first superuser with the one-time `BOOTSTRAP_ADMIN_*` variables and `python manage.py bootstrap_admin`.
 
-`SUPERADMIN_TOTP_SECRET` is mandatory in production. Generate a private Base32 secret (at least 16 characters), add it manually to an authenticator application under the account name `BarakaTop`, and enter the current six-digit code together with the superadmin password. Never commit that secret to GitHub.
+`SUPERADMIN_TOTP_SECRET` is optional. Leave it empty to use superadmin login and password only. To enable 2FA, set a private Base32 secret of at least 16 characters and add the same secret manually to an authenticator application under the account name `BarakaTop`. Never commit that secret to GitHub.
 
 This directory is a complete, standalone GitHub/Render application. Create a repository whose root contains these files (including this directory's `render.yaml`), then create a Render Blueprint from that repository. Do not upload the local POS source code to that repository.
 

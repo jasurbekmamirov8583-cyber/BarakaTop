@@ -3,7 +3,7 @@
 1. Create a Supabase Free project and save the database password safely.
 2. In **Connect**, copy the Shared Pooler **session mode** URL on port 5432. Use it as Render's `DATABASE_URL`.
 3. Upload only the contents of `web_control/` to a separate GitHub repository. Its `render.yaml` must be at the repository root, then create a Render Blueprint from that repository.
-4. Add every variable from `.env.example`. `PUBLIC_BASE_URL` must be the final HTTPS Render URL without a trailing slash. `SUPERADMIN_TOTP_SECRET` must be a private Base32 secret of at least 16 characters; add the same secret manually to your authenticator application as `BarakaTop`.
+4. Add every variable from `.env.example`. `PUBLIC_BASE_URL` must be the final HTTPS Render URL without a trailing slash. `SUPERADMIN_TOTP_SECRET` is optional: leave it empty for login-password access, or set a private Base32 secret of at least 16 characters to enable authenticator 2FA.
 5. Deploy. The build installs dependencies and collects static assets. Each service start safely applies migrations, creates the first superuser once, then launches Uvicorn/ASGI.
 6. Log in at `/panel/login/`. Immediately rotate/remove `BOOTSTRAP_ADMIN_PASSWORD` from Render after verifying the first login; existing passwords are never overwritten by later deploys.
 7. In BotFather create a bot. Put its token in `TELEGRAM_BOT_TOKEN`.
