@@ -10,6 +10,8 @@ Telegram Mini App ⇄ Render ASGI relay ⇄ outbound BarakaTop desktop agent ⇄
 
 Report payloads are never inserted into Supabase. If either endpoint disconnects, the request expires and must be retried.
 
+The data boundary is enforced in code: control audit metadata uses a strict allow-list, sale notification payloads are reduced to receipt display fields before leaving the relay, Mini App responses are marked `no-store`, and the online Django app intentionally has no sale, product, stock, customer, payment, or purchase models. Those records exist only in each shop's local database. Render keeps only authorization/routing metadata and short event-delivery receipts; live report and remote-command results stay in process memory only.
+
 ## Environment
 
 Copy `.env.example` values into Render environment variables. Use the Supabase **Session Pooler** connection string on port 5432 for the persistent Render service. Run migrations, then create the first superuser with the one-time `BOOTSTRAP_ADMIN_*` variables and `python manage.py bootstrap_admin`.

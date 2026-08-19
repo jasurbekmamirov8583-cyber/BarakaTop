@@ -21,6 +21,8 @@ services:
         sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: TELEGRAM_INIT_DATA_MAX_AGE
+        value: "3600"
       - key: PUBLIC_BASE_URL
         sync: false
       - key: ALLOWED_HOSTS
