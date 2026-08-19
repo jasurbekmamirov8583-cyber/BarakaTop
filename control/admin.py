@@ -2,7 +2,6 @@ from django.contrib import admin
 
 from .models import AlertRule, ControlAudit, Device, DeviceEnrollment, Store, StoreAdmin
 
-
 admin.site.register((Store, StoreAdmin, DeviceEnrollment, Device, AlertRule))
 
 

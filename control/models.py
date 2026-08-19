@@ -4,9 +4,9 @@ import uuid
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
-from django.core.exceptions import ValidationError
 
 
 def default_admin_permissions():
@@ -75,6 +75,8 @@ class Store(Stamp):
     licensed_features = models.JSONField(default=default_store_features, blank=True)
     enabled_features = models.JSONField(default=default_store_features, blank=True)
     timezone = models.CharField(max_length=64, default="Asia/Tashkent")
+    pos_session_unlimited = models.BooleanField(default=True)
+    pos_session_expires_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -99,6 +101,12 @@ class Store(Stamp):
     @property
     def active_feature_labels(self):
         return [FEATURE_LABELS.get(code, code) for code in self.active_features]
+
+    @property
+    def pos_session_days_remaining(self):
+        if self.pos_session_unlimited or not self.pos_session_expires_on:
+            return None
+        return max(0, (self.pos_session_expires_on - timezone.localdate()).days + 1)
 
 
 class StoreAdmin(Stamp):
@@ -222,6 +230,7 @@ class ControlAudit(models.Model):
     def action_label(self):
         return {
             "store.create": "Do‘kon yaratildi", "store.update": "Do‘kon yangilandi",
+            "store.delete": "Do‘kon o‘chirildi",
             "telegram_admin.create": "Telegram admin biriktirildi",
             "telegram_admin.toggle": "Telegram admin holati o‘zgardi",
             "enrollment.create": "Aktivatsiya yaratildi", "enrollment.revoke": "Aktivatsiya bekor qilindi",
@@ -249,3 +258,17 @@ class SecurityThrottle(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=("scope", "blocked_until"), name="control_sec_scope_5b8f12_idx")]
+
+
+class NotificationReceipt(Stamp):
+    """Idempotent delivery state for events received from a store computer."""
+
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="notification_receipts")
+    event_id = models.UUIDField(unique=True)
+    event = models.CharField(max_length=40)
+    delivered_to = models.JSONField(default=list, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=("store", "event", "created_at"), name="control_not_store_i_b38fb3_idx")]

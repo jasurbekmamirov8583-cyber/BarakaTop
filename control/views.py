@@ -12,8 +12,8 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.hashers import check_password, make_password
-from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,14 +23,43 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from .forms import AlertRuleForm, DeviceForm, EnrollmentForm, StoreForm, TelegramAdminForm
-from .models import AlertRule, ControlAudit, Device, DeviceEnrollment, FEATURE_CHOICES, Store, StoreAdmin
-from .security import (
-    activation_key_hash, bearer_token, client_ip, device_token_hash, host_cidr, ip_allowed,
-    issue_miniapp_session, new_activation_key, new_device_token, read_miniapp_session,
-    require_same_origin, signed_device_lease, throttle_blocked, throttle_clear, throttle_failure,
-    validate_telegram_init_data, verify_totp,
+from .models import (
+    FEATURE_CHOICES,
+    AlertRule,
+    ControlAudit,
+    Device,
+    DeviceEnrollment,
+    Store,
+    StoreAdmin,
 )
-from .telegram import TelegramAPIError, configure_bot, send_text, send_webapp_button
+from .security import (
+    activation_key_hash,
+    bearer_token,
+    client_ip,
+    device_token_hash,
+    host_cidr,
+    ip_allowed,
+    issue_miniapp_session,
+    new_activation_key,
+    new_device_token,
+    read_miniapp_session,
+    require_same_origin,
+    signed_device_lease,
+    throttle_blocked,
+    throttle_clear,
+    throttle_failure,
+    validate_telegram_init_data,
+    verify_totp,
+)
+from .telegram import (
+    TelegramAPIError,
+    answer_callback,
+    configure_bot,
+    main_menu_markup,
+    send_report_menu,
+    send_text,
+    send_webapp_button,
+)
 
 
 @require_http_methods(["GET", "HEAD"])
@@ -196,6 +225,18 @@ def store_detail(request, pk):
 
 
 @superadmin_required
+@require_POST
+@transaction.atomic
+def store_delete(request, pk):
+    store = get_object_or_404(Store, pk=pk)
+    store_name = store.name
+    audit(request, "store.delete", store, store, {"code": store.code, "name": store.name})
+    store.delete()
+    messages.success(request, f"{store_name} do‘koni va unga tegishli ulanishlar o‘chirildi.")
+    return redirect("stores")
+
+
+@superadmin_required
 @require_GET
 def store_device_status(request, pk):
     store = get_object_or_404(Store, pk=pk)
@@ -306,7 +347,8 @@ def device_edit(request, pk):
     if request.method == "POST" and form.is_valid():
         obj = form.save()
         if obj.status == Device.Status.ACTIVE and not obj.allowed_ip_cidrs and obj.last_ip:
-            obj.allowed_ip_cidrs = [host_cidr(obj.last_ip)]; obj.save(update_fields=("allowed_ip_cidrs", "updated_at"))
+            obj.allowed_ip_cidrs = [host_cidr(obj.last_ip)]
+            obj.save(update_fields=("allowed_ip_cidrs", "updated_at"))
         audit(request, "device.update", obj, obj.store, {"status": obj.status, "mode": obj.mode, "allowed_ip_cidrs": obj.allowed_ip_cidrs})
         messages.success(request, "Qurilma ruxsatlari yangilandi.")
         return redirect("store_detail", pk=obj.store_id)
@@ -369,7 +411,7 @@ def device_activate(request):
             audit(request, "device.activate", device, device.store, {"automatic": automatic, "ip": ip, "method": device.activation_method})
             throttle_clear("device-activate", ip)
             lease, lease_signature = signed_device_lease(raw_token, device)
-            return JsonResponse({"ok": True, "status": "active", "device_id": str(device.pk), "store_id": str(device.store_id), "store_name": device.store.name, "token": raw_token, "permissions": device.permissions, "mode": device.mode, "features": device.store.active_features, "activation_method": device.activation_method, "lease": lease, "lease_signature": lease_signature})
+            return JsonResponse({"ok": True, "status": "active", "device_id": str(device.pk), "store_id": str(device.store_id), "store_name": device.store.name, "enrollment_username": enrollment.username, "token": raw_token, "permissions": device.permissions, "mode": device.mode, "features": device.store.active_features, "activation_method": device.activation_method, "lease": lease, "lease_signature": lease_signature})
         device.save(update_fields=("last_ip", "app_version", "platform", "updated_at"))
         audit(request, "device.pending", device, device.store, {"ip": ip})
         return JsonResponse({"ok": False, "status": device.status, "device_id": str(device.pk), "message": "Qurilma super administrator tasdig‘ini kutmoqda.", "observed_ip": ip, "mode": device.mode, "activation_method": device.activation_method}, status=202)
@@ -387,7 +429,8 @@ def authenticate_device_request(request):
         device = Device.objects.select_related("store").get(token_hash=device_token_hash(token), install_id=install_id)
     except (Device.DoesNotExist, ValueError) as exc:
         raise PermissionDenied("Invalid device credential.") from exc
-    device.last_ip = ip; device.save(update_fields=("last_ip", "updated_at"))
+    device.last_ip = ip
+    device.save(update_fields=("last_ip", "updated_at"))
     if device.status != Device.Status.ACTIVE or device.owner_paused or device.store.status not in {Store.Status.TRIAL, Store.Status.ACTIVE}:
         raise PermissionDenied("Device or store is not active.")
     if not ip_allowed(ip, device.allowed_ip_cidrs):
@@ -504,22 +547,54 @@ def telegram_webhook(request):
         return JsonResponse({"ok": False}, status=403)
     try:
         update = json_input(request)
-        message = update.get("message") or {}
+        callback = update.get("callback_query") or {}
+        message = update.get("message") or callback.get("message") or {}
         chat_id = message.get("chat", {}).get("id")
+        telegram_id = callback.get("from", {}).get("id") or message.get("from", {}).get("id") or chat_id
         command = message.get("text", "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
-        if chat_id and command in {"/start", "/app", "/panel"}:
-            registered = StoreAdmin.objects.filter(
-                telegram_id=chat_id, active=True,
+        callback_data = str(callback.get("data", ""))
+        registered = bool(
+            telegram_id
+            and StoreAdmin.objects.filter(
+                telegram_id=telegram_id,
+                active=True,
                 store__status__in=(Store.Status.TRIAL, Store.Status.ACTIVE),
             ).exists()
+        )
+        if callback.get("id"):
+            answer_callback(callback["id"])
+            if callback_data == "my_id":
+                send_text(chat_id, f"🆔 Sizning Telegram ID raqamingiz: <code>{telegram_id}</code>", parse_mode="HTML")
+            elif callback_data == "stores":
+                stores = Store.objects.filter(
+                    telegram_admins__telegram_id=telegram_id,
+                    telegram_admins__active=True,
+                    status__in=(Store.Status.TRIAL, Store.Status.ACTIVE),
+                ).distinct()
+                rows = [f"• <b>{store.name}</b> — {store.get_status_display()}" for store in stores]
+                send_text(
+                    chat_id,
+                    "🏪 <b>Sizga biriktirilgan do‘konlar:</b>\n\n" + ("\n".join(rows) if rows else "Do‘kon topilmadi."),
+                    reply_markup=main_menu_markup() if rows else None,
+                    parse_mode="HTML",
+                )
+            elif callback_data == "help":
+                send_text(chat_id, "❓ <b>BarakaTop yordam</b>\n\n/start — bosh menyu\n/reports — jonli hisobotlar\n/id — Telegram ID\n/app — boshqaruv paneli", reply_markup=main_menu_markup() if registered else None, parse_mode="HTML")
+            return JsonResponse({"ok": True})
+        if chat_id and command in {"/start", "/app", "/panel"}:
             if registered:
                 send_webapp_button(chat_id)
             else:
-                send_text(chat_id, f"Siz hali birorta do‘konga biriktirilmagansiz.\n\nTelegram ID: {chat_id}\n\nShu raqamni super-adminga yuboring.")
+                send_text(chat_id, f"👋 BarakaTop botiga xush kelibsiz!\n\nSiz hali birorta do‘konga biriktirilmagansiz.\n\n🆔 Telegram ID: <code>{telegram_id}</code>\n\nShu raqamni super-adminga yuboring.", parse_mode="HTML")
         elif chat_id and command == "/id":
-            send_text(chat_id, f"Sizning Telegram ID raqamingiz: {chat_id}")
+            send_text(chat_id, f"🆔 Sizning Telegram ID raqamingiz: <code>{telegram_id}</code>", parse_mode="HTML")
+        elif chat_id and command in {"/reports", "/today"}:
+            if registered:
+                send_report_menu(chat_id)
+            else:
+                send_text(chat_id, f"Avval Telegram ID {telegram_id} ni do‘konga biriktiring.")
         elif chat_id and command == "/help":
-            send_text(chat_id, "BarakaTop yordam:\n/start — boshqaruv tugmasi\n/app — web-ilovani ochish\n/id — Telegram ID ni ko‘rish\n\nKirish uchun Telegram ID do‘konga biriktirilgan bo‘lishi kerak.")
+            send_text(chat_id, "❓ <b>BarakaTop yordam</b>\n\n/start — bosh menyu\n/reports — jonli hisobotlar\n/id — Telegram ID\n/app — boshqaruv paneli", reply_markup=main_menu_markup() if registered else None, parse_mode="HTML")
     except (TelegramAPIError, ValidationError, ValueError, TypeError):
         # Telegram update qayta-qayta yuborilmasligi uchun webhookni baribir tasdiqlaymiz.
         return JsonResponse({"ok": True, "handled": False})

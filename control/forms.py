@@ -6,27 +6,59 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django import forms
 from django.utils import timezone
 
-from .models import AlertRule, Device, DeviceEnrollment, FEATURE_CHOICES, PERMISSION_CHOICES, Store, StoreAdmin
+from .models import (
+    FEATURE_CHOICES,
+    PERMISSION_CHOICES,
+    AlertRule,
+    Device,
+    DeviceEnrollment,
+    Store,
+    StoreAdmin,
+)
 from .security import valid_cidrs
+
 
 class StoreForm(forms.ModelForm):
     licensed_features = forms.MultipleChoiceField(choices=FEATURE_CHOICES, widget=forms.CheckboxSelectMultiple, label="Do‘konga ruxsat etilgan funksiyalar")
 
     class Meta:
         model = Store
-        fields = ("code", "name", "owner_name", "owner_phone", "status", "max_devices", "licensed_features", "timezone", "notes")
+        fields = (
+            "code", "name", "owner_name", "owner_phone", "status", "max_devices",
+            "licensed_features", "timezone", "pos_session_unlimited",
+            "pos_session_expires_on", "notes",
+        )
         labels = {
             "code": "Do‘kon kodi", "name": "Do‘kon nomi", "owner_name": "Egasi F.I.Sh.",
             "owner_phone": "Telefon raqami", "status": "Holati",
             "max_devices": "Ruxsat etilgan qurilmalar soni", "timezone": "Vaqt mintaqasi",
+            "pos_session_unlimited": "Sessiya cheksiz",
+            "pos_session_expires_on": "Sessiya tugash sanasi",
             "notes": "Izoh",
         }
         help_texts = {
             "code": "Takrorlanmaydigan qisqa kod. Masalan: olympic-01. Lotin harflari, raqam va chiziqcha ishlating.",
             "timezone": "O‘zbekiston uchun Asia/Tashkent qiymatini qoldiring.",
+            "pos_session_unlimited": "Belgilansa, admin o‘zgartirmaguncha POS qayta login so‘ramaydi.",
+            "pos_session_expires_on": "Cheksiz rejim o‘chirilsa, kalendardan oxirgi ruxsat kunini tanlang.",
             "notes": "Faqat super-admin ko‘radigan ichki izoh.",
         }
-        widgets = {"notes": forms.Textarea(attrs={"rows": 3, "placeholder": "Ixtiyoriy izoh"})}
+        widgets = {
+            "pos_session_expires_on": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 3, "placeholder": "Ixtiyoriy izoh"}),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        unlimited = bool(cleaned.get("pos_session_unlimited"))
+        expires_on = cleaned.get("pos_session_expires_on")
+        if unlimited:
+            cleaned["pos_session_expires_on"] = None
+        elif not expires_on:
+            self.add_error("pos_session_expires_on", "Cheksiz rejim o‘chirilsa, tugash sanasini tanlang.")
+        elif expires_on < timezone.localdate():
+            self.add_error("pos_session_expires_on", "Tugash sanasi bugundan oldin bo‘lishi mumkin emas.")
+        return cleaned
 
     def save(self, commit=True):
         adding = self.instance._state.adding

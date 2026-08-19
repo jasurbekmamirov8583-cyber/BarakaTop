@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
-import base64
 import ipaddress
 import json
 import secrets
 import time
-from urllib.parse import parse_qsl
-from urllib.parse import urlsplit
+from datetime import timedelta
+from urllib.parse import parse_qsl, urlsplit
 
 from django.conf import settings
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
-from datetime import timedelta
 
 
 def client_ip(request) -> str:
@@ -38,6 +37,11 @@ def signed_device_lease(token: str, device) -> tuple[dict, str]:
         "permissions": list(device.permissions or []),
         "features": list(device.store.active_features),
         "timezone": device.store.timezone,
+        "session_unlimited": bool(device.store.pos_session_unlimited),
+        "session_expires_on": (
+            device.store.pos_session_expires_on.isoformat()
+            if device.store.pos_session_expires_on else None
+        ),
         "max_devices": device.store.max_devices,
         "max_lan_clients": max_lan_clients,
         "issued_at": now,
@@ -176,7 +180,10 @@ def validate_telegram_init_data(raw: str, max_age=600) -> dict:
     expected = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
     if not received_hash or not hmac.compare_digest(received_hash, expected):
         raise PermissionDenied("Telegram imzosi tasdiqlanmadi. Web-ilovani bot tugmasidan qayta oching.")
-    auth_date = int(pairs.get("auth_date", "0"))
+    try:
+        auth_date = int(pairs.get("auth_date", "0"))
+    except (TypeError, ValueError) as exc:
+        raise PermissionDenied("Telegram kirish vaqti noto‘g‘ri.") from exc
     if auth_date <= 0 or abs(time.time() - auth_date) > max_age:
         raise PermissionDenied("Telegram kirish ma’lumoti eskirgan. Web-ilovani qayta oching.")
     try:

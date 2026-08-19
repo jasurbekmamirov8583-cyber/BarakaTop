@@ -9,15 +9,16 @@ from dataclasses import dataclass
 from datetime import timedelta
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qs
+from uuid import UUID
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 
-from .models import AlertRule, ControlAudit, Device, Store, StoreAdmin
+from .models import AlertRule, ControlAudit, Device, NotificationReceipt, Store, StoreAdmin
 from .security import device_token_hash, ip_allowed, read_miniapp_session, signed_device_lease
-from .telegram import send_alert
+from .telegram import send_alert, send_sale_notification
 
 log = logging.getLogger("control.relay")
 MAX_MESSAGE = 2_000_000
@@ -92,7 +93,8 @@ def scope_headers(scope):
 
 
 def cookie_value(scope, name):
-    cookie = SimpleCookie(); cookie.load(scope_headers(scope).get("cookie", ""))
+    cookie = SimpleCookie()
+    cookie.load(scope_headers(scope).get("cookie", ""))
     return cookie[name].value if name in cookie else ""
 
 
@@ -201,6 +203,56 @@ async def send_device_alert(peer, message):
         await mark_alert_sent(rule_id, delivered)
 
 
+@sync_to_async
+def prepare_device_event(store_id, event_id, event):
+    receipt, _ = NotificationReceipt.objects.get_or_create(
+        event_id=event_id,
+        defaults={"store_id": store_id, "event": event},
+    )
+    if str(receipt.store_id) != str(store_id) or receipt.event != event:
+        raise PermissionDenied("Event identifikatori boshqa do‘konga tegishli.")
+    recipients = list(
+        StoreAdmin.objects.filter(store_id=store_id, active=True).values_list("telegram_id", flat=True)
+    )
+    delivered = {int(value) for value in (receipt.delivered_to or [])}
+    return receipt.pk, receipt.store.name, [value for value in recipients if value not in delivered], bool(receipt.completed_at)
+
+
+@sync_to_async
+def finish_device_event(receipt_id, delivered_to, complete):
+    receipt = NotificationReceipt.objects.get(pk=receipt_id)
+    receipt.delivered_to = sorted({*(receipt.delivered_to or []), *delivered_to})
+    if complete:
+        receipt.completed_at = timezone.now()
+    receipt.save(update_fields=("delivered_to", "completed_at", "updated_at"))
+
+
+async def send_device_event(peer, message):
+    event = str(message.get("event", ""))[:40]
+    event_id = str(UUID(str(message.get("event_id", ""))))
+    if event != "sale.completed":
+        raise PermissionDenied("Qurilma hodisasi qo‘llab-quvvatlanmaydi.")
+    payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+    store_id = next(iter(peer.store_ids))
+    receipt_id, store_name, recipients, already_complete = await prepare_device_event(
+        store_id, event_id, event
+    )
+    if already_complete:
+        await hub.send_json(peer, {"type": "event_ack", "event_id": event_id})
+        return
+    delivered = []
+    for telegram_id in recipients:
+        try:
+            await asyncio.to_thread(send_sale_notification, telegram_id, store_name, payload)
+            delivered.append(telegram_id)
+        except Exception:
+            log.exception("Telegram sale notification failed")
+    complete = len(delivered) == len(recipients)
+    await finish_device_event(receipt_id, delivered, complete)
+    if complete:
+        await hub.send_json(peer, {"type": "event_ack", "event_id": event_id})
+
+
 async def websocket_application(scope, receive, send):
     connect_event = await receive()
     if connect_event["type"] != "websocket.connect":
@@ -248,11 +300,13 @@ async def websocket_application(scope, receive, send):
                 continue
             raw = event.get("text", "")
             if len(raw) > MAX_MESSAGE:
-                await send({"type": "websocket.close", "code": 4409, "reason": "Message too large"}); break
+                await send({"type": "websocket.close", "code": 4409, "reason": "Message too large"})
+                break
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
-                await hub.send_json(peer, {"type": "error", "error": "So‘rov ma’lumoti noto‘g‘ri."}); continue
+                await hub.send_json(peer, {"type": "error", "error": "So‘rov ma’lumoti noto‘g‘ri."})
+                continue
             if message.get("type") in {"ping", "heartbeat"}:
                 policy = await device_still_authorized(peer.device_id, scope_ip(scope), peer.device_token) if peer.kind == "device" else None
                 if peer.kind == "device" and not policy:
@@ -260,7 +314,8 @@ async def websocket_application(scope, receive, send):
                     break
                 if peer.kind == "device" and policy:
                     peer.permissions[next(iter(peer.store_ids))] = list(policy.get("permissions", []))
-                await hub.send_json(peer, {"type": "pong", "time": timezone.now().isoformat(), **(policy or {})}); continue
+                await hub.send_json(peer, {"type": "pong", "time": timezone.now().isoformat(), **(policy or {})})
+                continue
             if peer.kind == "admin" and message.get("type") == "report_request":
                 report, device_id = message.get("report", ""), message.get("device_id", "")
                 required = REPORT_PERMISSION.get(report)
@@ -271,7 +326,8 @@ async def websocket_application(scope, receive, send):
                         raise PermissionDenied("Bu hisobotni ko‘rishga ruxsat yo‘q.")
                     device_peer = hub.devices.get(device_id)
                     if not device_peer:
-                        await hub.send_json(peer, {"type": "report_error", "request_id": message.get("request_id"), "error": "Do‘kon kompyuteri hozir online emas."}); continue
+                        await hub.send_json(peer, {"type": "report_error", "request_id": message.get("request_id"), "error": "Do‘kon kompyuteri hozir online emas."})
+                        continue
                     now = time.monotonic()
                     hub.pending = {key: value for key, value in hub.pending.items() if now - value[3] < 120}
                     if sum(1 for value in hub.pending.values() if value[0] == peer.peer_id) >= 5:
@@ -332,5 +388,17 @@ async def websocket_application(scope, receive, send):
                         await hub.send_json(target, response)
             elif peer.kind == "device" and message.get("type") == "alert":
                 await send_device_alert(peer, message)
+            elif peer.kind == "device" and message.get("type") == "device_event":
+                try:
+                    await send_device_event(peer, message)
+                except (PermissionDenied, ValueError) as exc:
+                    await hub.send_json(
+                        peer,
+                        {
+                            "type": "event_error",
+                            "event_id": str(message.get("event_id", ""))[:80],
+                            "error": str(exc)[:300],
+                        },
+                    )
     finally:
         await hub.remove(peer)
