@@ -9,4 +9,7 @@ class SecurityHeadersMiddleware:
         response.setdefault("Referrer-Policy", "same-origin")
         response.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
         response.setdefault("Content-Security-Policy", f"default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; frame-ancestors {frame_ancestors}; base-uri 'self'; form-action 'self'")
+        if miniapp_request:
+            response["Cache-Control"] = "no-store, private"
+            response["Pragma"] = "no-cache"
         return response

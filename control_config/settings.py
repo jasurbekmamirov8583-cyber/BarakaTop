@@ -96,6 +96,7 @@ SECURE_HSTS_PRELOAD = False
 SECURE_CONTENT_TYPE_NOSNIFF = True
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1_000_000
 MINIAPP_SESSION_MAX_AGE = 43_200
+TELEGRAM_INIT_DATA_MAX_AGE = max(300, min(int(os.environ.get("TELEGRAM_INIT_DATA_MAX_AGE", "3600")), 86_400))
 _raw_superadmin_totp_secret = os.environ.get("SUPERADMIN_TOTP_SECRET", "").replace(" ", "").upper()
 _superadmin_totp_is_valid = len(_raw_superadmin_totp_secret) >= 16 and all(
     character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for character in _raw_superadmin_totp_secret
