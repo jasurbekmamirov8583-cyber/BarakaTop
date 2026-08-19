@@ -33,12 +33,12 @@ from .security import (
 from .telegram import configure_bot, send_webapp_button
 
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])
 def home(request):
     return redirect("panel_login")
 
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])
 def favicon(request):
     return redirect(f"{settings.STATIC_URL}control/barakatop.png")
 
@@ -87,24 +87,18 @@ def miniapp_admin(request, store_id, permission=None):
     return admin
 
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])
 def health(request):
     return JsonResponse({"ok": True, "service": "barakatop-control", "time": timezone.now().isoformat()})
 
 
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET", "HEAD", "POST"])
 def panel_login(request):
     if request.user.is_authenticated and request.user.is_superuser:
         if timezone.now().timestamp() - request.session.get("superadmin_2fa_at", 0) <= 12 * 3600:
             return redirect("panel_dashboard")
         logout(request)
     identity = client_ip(request)
-    if settings.SUPERADMIN_TOTP_INVALID:
-        return render(request, "control/login.html", {
-            "form": AuthenticationForm(),
-            "configuration_error": "SUPERADMIN_TOTP_SECRET noto‘g‘ri. Uni Render Environment bo‘limidan o‘chiring yoki kamida 16 belgili Base32 sir kiriting.",
-            "totp_enabled": False,
-        }, status=503)
     if throttle_blocked("panel-login", identity):
         return render(request, "control/login.html", {"form": AuthenticationForm(), "blocked": True, "totp_enabled": settings.SUPERADMIN_TOTP_ENABLED}, status=429)
     form = AuthenticationForm(request, data=request.POST or None)
