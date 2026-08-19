@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from datetime import timedelta
 from functools import wraps
@@ -61,6 +62,9 @@ from .telegram import (
     send_text,
     send_webapp_button,
 )
+
+
+log = logging.getLogger("control.telegram_webhook")
 
 
 @require_http_methods(["GET", "HEAD"])
@@ -558,7 +562,12 @@ def telegram_webhook(request):
         message = update.get("message") or callback.get("message") or {}
         chat_id = message.get("chat", {}).get("id")
         telegram_id = callback.get("from", {}).get("id") or message.get("from", {}).get("id") or chat_id
-        command = message.get("text", "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+        # Telegram photo, sticker, contact, service and Web App updates may
+        # contain a message without `text`. Such updates must still receive a
+        # successful webhook response; an empty text is simply not a command.
+        text = str(message.get("text") or "").strip()
+        first_word = text.split(maxsplit=1)[0] if text else ""
+        command = first_word.split("@", 1)[0].lower()
         callback_data = str(callback.get("data", ""))
         registered = bool(
             telegram_id
@@ -602,7 +611,8 @@ def telegram_webhook(request):
                 send_text(chat_id, f"Avval Telegram ID {telegram_id} ni do‘konga biriktiring.")
         elif chat_id and command == "/help":
             send_text(chat_id, "❓ <b>BarakaTop yordam</b>\n\n/start — bosh menyu\n/reports — jonli hisobotlar\n/id — Telegram ID\n/app — boshqaruv paneli", reply_markup=main_menu_markup() if registered else None, parse_mode="HTML")
-    except (TelegramAPIError, ValidationError, ValueError, TypeError):
+    except (TelegramAPIError, ValidationError, ValueError, TypeError, KeyError) as exc:
         # Telegram update qayta-qayta yuborilmasligi uchun webhookni baribir tasdiqlaymiz.
+        log.warning("Telegram update qayta ishlanmadi: %s", exc)
         return JsonResponse({"ok": True, "handled": False})
     return JsonResponse({"ok": True})
