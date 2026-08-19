@@ -83,6 +83,9 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 1_000_000
 MINIAPP_SESSION_MAX_AGE = 43_200
 SUPERADMIN_TOTP_SECRET = os.environ.get("SUPERADMIN_TOTP_SECRET", "").replace(" ", "").upper()
-if not DEBUG and len(SUPERADMIN_TOTP_SECRET) < 16:
-    raise RuntimeError("SUPERADMIN_TOTP_SECRET must be configured for production.")
+if not DEBUG and (
+    len(SUPERADMIN_TOTP_SECRET) < 16
+    or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for character in SUPERADMIN_TOTP_SECRET)
+):
+    raise RuntimeError("SUPERADMIN_TOTP_SECRET must be a valid Base32 secret of at least 16 characters.")
 DEVICE_LEASE_SECONDS = max(3600, min(int(os.environ.get("DEVICE_LEASE_SECONDS", "604800")), 2_592_000))
