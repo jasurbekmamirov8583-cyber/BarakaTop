@@ -33,6 +33,16 @@ from .security import (
 from .telegram import configure_bot, send_webapp_button
 
 
+@require_GET
+def home(request):
+    return redirect("panel_login")
+
+
+@require_GET
+def favicon(request):
+    return redirect(f"{settings.STATIC_URL}control/barakatop.png")
+
+
 def json_input(request):
     try:
         value = json.loads(request.body or b"{}")
