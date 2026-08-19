@@ -10,6 +10,7 @@ class Command(BaseCommand):
         username = os.environ.get("BOOTSTRAP_ADMIN_USERNAME", "").strip()
         password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "")
         email = os.environ.get("BOOTSTRAP_ADMIN_EMAIL", "").strip()
+        reset_password = os.environ.get("BOOTSTRAP_ADMIN_RESET_PASSWORD", "0") == "1"
         if not username:
             self.stdout.write("BOOTSTRAP_ADMIN_USERNAME is not set; bootstrap skipped.")
             return
@@ -19,7 +20,17 @@ class Command(BaseCommand):
         existing = User.objects.filter(username=username).first()
         if existing:
             if existing.is_superuser and existing.is_staff:
-                self.stdout.write(f"Super administrator {username} already exists; password unchanged.")
+                if reset_password:
+                    if len(password) < 10:
+                        self.stderr.write(self.style.ERROR(
+                            "Password reset requested, but BOOTSTRAP_ADMIN_PASSWORD has fewer than 10 characters."
+                        ))
+                        return
+                    existing.set_password(password)
+                    existing.save(update_fields=("password",))
+                    self.stdout.write(self.style.SUCCESS(f"Super administrator {username} password reset."))
+                else:
+                    self.stdout.write(f"Super administrator {username} already exists; password unchanged.")
             else:
                 self.stderr.write(self.style.ERROR(
                     f"User {username} already exists but is not a super administrator; bootstrap skipped."
