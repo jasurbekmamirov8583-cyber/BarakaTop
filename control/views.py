@@ -35,8 +35,11 @@ from .telegram import configure_bot, send_webapp_button
 
 def json_input(request):
     try:
-        return json.loads(request.body or b"{}")
-    except json.JSONDecodeError as exc:
+        value = json.loads(request.body or b"{}")
+        if not isinstance(value, dict):
+            raise ValidationError("JSON object expected.")
+        return value
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
         raise ValidationError("Invalid JSON.") from exc
 
 
@@ -373,9 +376,16 @@ def authenticate_device_request(request):
 
 @csrf_exempt
 @require_POST
+@transaction.atomic
 def device_verify(request):
     try:
         device, ip, token = authenticate_device_request(request)
+        Store.objects.select_for_update().get(pk=device.store_id)
+        device = Device.objects.select_for_update().select_related("store").get(pk=device.pk)
+        if device.status != Device.Status.ACTIVE or device.owner_paused or device.store.status not in {Store.Status.TRIAL, Store.Status.ACTIVE}:
+            raise PermissionDenied("Device or store is not active.")
+        if not ip_allowed(ip, device.allowed_ip_cidrs):
+            raise PermissionDenied("Current public IP is not authorized.")
         metadata = json_input(request)
         lan_clients = metadata.get("lan_clients", []) if isinstance(metadata, dict) else []
         if not isinstance(lan_clients, list):
@@ -391,7 +401,7 @@ def device_verify(request):
         device.save(update_fields=("last_ip", "last_seen_at", "lan_clients", "updated_at"))
         lease, lease_signature = signed_device_lease(token, device)
         return JsonResponse({"ok": True, "status": device.status, "store_id": str(device.store_id), "store_name": device.store.name, "permissions": device.permissions, "mode": device.mode, "features": device.store.active_features, "server_time": timezone.now().isoformat(), "lease": lease, "lease_signature": lease_signature})
-    except (PermissionDenied, ValueError) as exc:
+    except (PermissionDenied, ValidationError, ValueError) as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=403)
 
 

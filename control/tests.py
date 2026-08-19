@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
-from django.test import TestCase, override_settings
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from .models import Device, DeviceEnrollment, Store, StoreAdmin
@@ -16,7 +16,7 @@ from .security import activation_key_hash, device_token_hash, ip_allowed, issue_
 
 
 @override_settings(DEVICE_TOKEN_PEPPER="test-pepper", TELEGRAM_BOT_TOKEN="123456:test-token", SECURE_SSL_REDIRECT=False)
-class DeviceActivationTests(TestCase):
+class DeviceActivationTests(TransactionTestCase):
     def setUp(self):
         self.store = Store.objects.create(code="shop-1", name="Shop 1", status=Store.Status.ACTIVE)
         self.enrollment = DeviceEnrollment.objects.create(store=self.store, username="device-user", password_hash=make_password("StrongDevicePass1"), label="Main POS", expected_ip_cidrs=["203.0.113.7/32"], mode=DeviceEnrollment.Mode.POS, permissions=["overview", "sales", "inventory", "products"], expires_at=timezone.now() + timedelta(days=1))
@@ -73,7 +73,7 @@ class DeviceActivationTests(TestCase):
 
 
 @override_settings(TELEGRAM_BOT_TOKEN="123456:test-token", SECURE_SSL_REDIRECT=False)
-class TelegramValidationTests(TestCase):
+class TelegramValidationTests(TransactionTestCase):
     def signed_data(self, telegram_id=998877):
         values = {"auth_date": str(int(time.time())), "query_id": "abc", "user": json.dumps({"id": telegram_id, "first_name": "Owner"}, separators=(",", ":"))}
         check = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
@@ -95,7 +95,12 @@ class TelegramValidationTests(TestCase):
         store = Store.objects.create(code="feature-shop", name="Feature Shop", status=Store.Status.ACTIVE, licensed_features=["pos", "inventory"], enabled_features=["pos"])
         StoreAdmin.objects.create(store=store, telegram_id=998877, display_name="Owner", permissions=["settings"])
         self.client.cookies["orbit_mini_session"] = issue_miniapp_session(998877)
-        response = self.client.post(f"/api/v1/telegram/stores/{store.pk}/features/", data=json.dumps({"features": ["inventory", "finance"]}), content_type="application/json")
+        response = self.client.post(
+            f"/api/v1/telegram/stores/{store.pk}/features/",
+            data=json.dumps({"features": ["inventory", "finance"]}),
+            content_type="application/json",
+            HTTP_SEC_FETCH_SITE="same-origin",
+        )
         self.assertEqual(response.status_code, 200)
         store.refresh_from_db()
         self.assertEqual(store.active_features, ["inventory"])

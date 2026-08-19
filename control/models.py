@@ -212,4 +212,4 @@ class SecurityThrottle(models.Model):
     blocked_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=("scope", "blocked_until"))]
+        indexes = [models.Index(fields=("scope", "blocked_until"), name="control_sec_scope_5b8f12_idx")]
