@@ -1,6 +1,6 @@
-import control.models
 from django.db import migrations, models
 
+import control.models
 
 DEFAULT_FEATURES = ["pos", "inventory", "purchasing", "finance", "customers", "reports", "labels", "qr_receipt"]
 
